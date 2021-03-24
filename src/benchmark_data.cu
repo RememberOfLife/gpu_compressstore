@@ -51,41 +51,58 @@ void benchmark_data::generate_mask(MaskType mtype, double marg)
     {
     default:
         break;
-    case MASKTYPE_UNIFORM:
-        // marg specifies chance of a bit being a 1
-        for (int i = 0; i < size/8; i++) {
-            uint32_t acc = 0;
-            for (int j = 7; j >= 0; j--) {
-                double r = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
-                if (r > marg) {
-                    acc |= (1<<j);
+    case MASKTYPE_UNIFORM: {
+            // marg specifies chance of a bit being a 1
+            for (int i = 0; i < size/8; i++) {
+                uint32_t acc = 0;
+                for (int j = 7; j >= 0; j--) {
+                    double r = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
+                    if (r > marg) {
+                        acc |= (1<<j);
+                    }
                 }
+                reinterpret_cast<uint8_t*>(h_mask)[i] = acc;
             }
-            reinterpret_cast<uint8_t*>(h_mask)[i] = acc;
         }
         break;
-    case MASKTYPE_ZIPF:
-        // probably r = a * (c * x)^-k
-        // empirical:
-        // a = 1.2
-        // c = log10(n) / n
-        // k = 1.43
-        break;
-    case MASKTYPE_BURST:
-        break;
-    case MASKTYPE_OFFSET:
-        // marg denotes that every bit at index n%marg==0 is 1 and others 0, inverted mask if marg<0
-        bool invert = marg < 0;
-        int64_t offset = static_cast<int64_t>(marg);
-        offset = (offset == 0) ? 1 : offset;
-        for (int i = 0; i < size/8; i++) {
-            uint32_t acc = 0;
-            for (int j = 7; j >= 0; j--) {
-                if ((i*8+(7-j)) % offset == 0) {
-                    acc |= (1<<j);
+    case MASKTYPE_ZIPF: {
+            // probably r = a * (c * x)^-k
+            // empirical:
+            // a = 1.2
+            // c = log10(n) / n
+            // k = 1.43
+            double c = log10(static_cast<double>(size)) / static_cast<double>(size);
+            for (int i = 0; i < size/8; i++) {
+                uint32_t acc = 0;
+                for (int j = 7; j >= 0; j--) {
+                    double ev = marg * (1 / (pow((c*(i*8+(7-j))), 1.43)));
+                    double rv = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
+                    if (rv < ev) {
+                        acc |= (1<<j);
+                    }
                 }
+                reinterpret_cast<uint8_t*>(h_mask)[i] = acc;
             }
-            reinterpret_cast<uint8_t*>(h_mask)[i] = (invert ? ~acc : acc);
+        }
+        break;
+    case MASKTYPE_BURST: {
+
+        }
+        break;
+    case MASKTYPE_OFFSET: {
+            // marg denotes that every bit at index n%marg==0 is 1 and others 0, inverted mask if marg<0
+            bool invert = marg < 0;
+            int64_t offset = static_cast<int64_t>(marg);
+            offset = (offset == 0) ? 1 : offset;
+            for (int i = 0; i < size/8; i++) {
+                uint32_t acc = 0;
+                for (int j = 7; j >= 0; j--) {
+                    if ((i*8+(7-j)) % offset == 0) {
+                        acc |= (1<<j);
+                    }
+                }
+                reinterpret_cast<uint8_t*>(h_mask)[i] = (invert ? ~acc : acc);
+            }
         }
         break;
     }

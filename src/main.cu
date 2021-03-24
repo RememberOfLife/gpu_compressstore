@@ -10,7 +10,7 @@
 int main()
 {
     benchmark_data bdata(true, 64); // 2<<17 = 1MiB worth of elems (2<<27 = 2GiB)
-    bdata.generate_mask(MASKTYPE_OFFSET, 3);
+    bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
 
     kernel_singlethread<<<1,1>>>(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.size);
     CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.size * sizeof(uint64_t), cudaMemcpyDeviceToHost));
