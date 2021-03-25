@@ -86,7 +86,25 @@ void benchmark_data::generate_mask(MaskType mtype, double marg)
         }
         break;
     case MASKTYPE_BURST: {
-
+            // marg sets pseudo segment distance, can be modified by up to +/-50% in size and is randomly 1/0
+            double segment = static_cast<double>(size) * marg;
+            double rv = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
+            uint64_t current_length = static_cast<uint64_t>(segment * (rv+0.5));
+            bool is_one = false;
+            for (int i = 0; i < size/8; i++) {
+                uint32_t acc = 0;
+                for (int j = 7; j >= 0; j--) {
+                    if (is_one) {
+                        acc |= (1<<j);
+                    }
+                    if (--current_length == 0) {
+                        rv = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
+                        current_length = static_cast<uint64_t>(segment * (rv+0.5));
+                        is_one = !is_one;
+                    }
+                }
+                reinterpret_cast<uint8_t*>(h_mask)[i] = acc;
+            }
         }
         break;
     case MASKTYPE_OFFSET: {

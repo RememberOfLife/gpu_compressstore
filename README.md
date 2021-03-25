@@ -1,9 +1,6 @@
 ## TODO:
 * template parameters for different uint sizes (64/32/16)
 * fix input sizes to sane multiple (8/32) to accomodate bitmask and kernels
-* more bitmask patterns
-  * zipf front to back
-  * clustered streaks
 * logging utility for creating benchmarks
 
 ## Optimizations:
