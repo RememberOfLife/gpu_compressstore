@@ -5,14 +5,14 @@
 
 #include "benchmark_data.cuh"
 #include "cuda_try.cuh"
-#include "kernels.cuh"
+#include "kernels/kernel_singlethread.cuh"
 
 int main()
 {
-    benchmark_data bdata(true, 64); // 2<<17 = 1MiB worth of elems (2<<27 = 2GiB)
+    benchmark_data<uint64_t> bdata(true, 64); // 2<<17 = 1MiB worth of elems (2<<27 = 2GiB)
     bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
 
-    kernel_singlethread<<<1,1>>>(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.size);
+    kernel_singlethread<uint64_t><<<1,1>>>(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.size);
     CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.size * sizeof(uint64_t), cudaMemcpyDeviceToHost));
     
     // print for testing (first 64 elems of input, validation and mask)

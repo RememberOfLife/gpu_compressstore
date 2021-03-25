@@ -10,14 +10,12 @@ set(INCLUDES
 set(SOURCES
     src/main.cu
 
-    src/benchmark_data.cu
     src/benchmark_data.cuh
     src/cuda_try.cuh
     src/fast_prng.cpp
     src/fast_prng.hpp
-    src/kernels.cuh
 
-    src/kernels/kernel_singlethread.cu
+    src/kernels/kernel_singlethread.cuh
 )
 
 add_executable(gpu_compressstore ${SOURCES})

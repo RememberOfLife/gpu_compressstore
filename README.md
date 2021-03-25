@@ -1,5 +1,4 @@
 ## TODO:
-* template parameters for different uint sizes (64/32/16)
 * fix input sizes to sane multiple (8/32) to accomodate bitmask and kernels
 * logging utility for creating benchmarks
 

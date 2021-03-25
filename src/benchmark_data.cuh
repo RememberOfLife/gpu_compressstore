@@ -1,9 +1,13 @@
 #ifndef BENCHMARK_DATA_CUH
 #define BENCHMARK_DATA_CUH
 
+#include <assert.h>
 #include <cstdint>
+#include <memory>
 
 #include "benchmark_data.cuh"
+#include "cuda_try.cuh"
+#include "fast_prng.hpp"
 
 enum MaskType {
     MASKTYPE_UNIFORM = 0, // every bit is decided uniformly random
@@ -12,23 +16,172 @@ enum MaskType {
     MASKTYPE_OFFSET = 3, // 1s with gaps of 0s: 1=101010..; 2=1001001..
 };
 
-typedef struct benchmark_data {
+template <typename T>
+struct benchmark_data {
     bool validation;
     uint64_t size; // elems
-    uint64_t* h_input;
+    T* h_input;
     uint8_t* h_mask;
-    uint64_t* h_validation; // correct results
-    uint64_t* h_output; // gpu result buffer
-    uint64_t* d_input;
+    T* h_validation; // correct results
+    T* h_output; // gpu result buffer
+    T* d_input;
     uint8_t* d_mask;
-    uint64_t* d_output;
+    T* d_output;
     cudaEvent_t ce_start;
     cudaEvent_t ce_stop;
 
-    benchmark_data(bool validation, uint64_t size);
-    ~benchmark_data();
-    void generate_mask(MaskType mtype, double marg);
-    bool validate(uint64_t count);
-} benchmark_data;
+    benchmark_data(bool validation, uint64_t size):
+        validation(validation),
+        size(size)
+    {
+        //TODO force byte_size to multiple of 32bit and element count to multiple of 8; fill with 0s at end
+        // alloc memory for all pointers
+        uint64_t byte_size_data = size * sizeof(T);
+        uint64_t byte_size_mask = size / 8;
+        CUDA_TRY(cudaMallocHost(&h_input, byte_size_data));
+        CUDA_TRY(cudaMallocHost(&h_mask, byte_size_mask));
+        CUDA_TRY(cudaMallocHost(&h_validation, byte_size_data));
+        CUDA_TRY(cudaMallocHost(&h_output, byte_size_data));
+        CUDA_TRY(cudaMalloc(&d_input, byte_size_data));
+        CUDA_TRY(cudaMalloc(&d_mask, byte_size_mask));
+        CUDA_TRY(cudaMalloc(&d_output, byte_size_data));
+        CUDA_TRY(cudaEventCreate(&ce_start));
+        CUDA_TRY(cudaEventCreate(&ce_stop));
+        // generate input
+        fast_prng rng(17);
+        for (int i = 0; i < byte_size_data/4; i++) {
+            reinterpret_cast<uint32_t*>(h_input)[i] = rng.rand();
+        }
+        // copy input to device
+        CUDA_TRY(cudaMemcpy(d_input, h_input, byte_size_data, cudaMemcpyHostToDevice));
+    }
+
+    ~benchmark_data()
+    {
+        CUDA_TRY(cudaEventDestroy(ce_stop));
+        CUDA_TRY(cudaEventDestroy(ce_start));
+        CUDA_TRY(cudaFree(d_output));
+        CUDA_TRY(cudaFree(d_mask));
+        CUDA_TRY(cudaFree(d_input));
+        CUDA_TRY(cudaFreeHost(h_output));
+        CUDA_TRY(cudaFreeHost(h_validation));
+        CUDA_TRY(cudaFreeHost(h_mask));
+        CUDA_TRY(cudaFreeHost(h_input));
+    }
+
+    void generate_mask(MaskType mtype, double marg)
+    {
+        fast_prng rng(42);
+        switch (mtype)
+        {
+        default:
+            break;
+        case MASKTYPE_UNIFORM: {
+                // marg specifies chance of a bit being a 1
+                for (int i = 0; i < size/8; i++) {
+                    uint32_t acc = 0;
+                    for (int j = 7; j >= 0; j--) {
+                        double r = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
+                        if (r > marg) {
+                            acc |= (1<<j);
+                        }
+                    }
+                    reinterpret_cast<uint8_t*>(h_mask)[i] = acc;
+                }
+            }
+            break;
+        case MASKTYPE_ZIPF: {
+                // probably r = a * (c * x)^-k
+                // empirical:
+                // a = 1.2
+                // c = log10(n) / n
+                // k = 1.43
+                double c = log10(static_cast<double>(size)) / static_cast<double>(size);
+                for (int i = 0; i < size/8; i++) {
+                    uint32_t acc = 0;
+                    for (int j = 7; j >= 0; j--) {
+                        double ev = marg * (1 / (pow((c*(i*8+(7-j))), 1.43)));
+                        double rv = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
+                        if (rv < ev) {
+                            acc |= (1<<j);
+                        }
+                    }
+                    reinterpret_cast<uint8_t*>(h_mask)[i] = acc;
+                }
+            }
+            break;
+        case MASKTYPE_BURST: {
+                // marg sets pseudo segment distance, can be modified by up to +/-50% in size and is randomly 1/0
+                double segment = static_cast<double>(size) * marg;
+                double rv = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
+                uint64_t current_length = static_cast<uint64_t>(segment * (rv+0.5));
+                bool is_one = false;
+                for (int i = 0; i < size/8; i++) {
+                    uint32_t acc = 0;
+                    for (int j = 7; j >= 0; j--) {
+                        if (is_one) {
+                            acc |= (1<<j);
+                        }
+                        if (--current_length == 0) {
+                            rv = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
+                            current_length = static_cast<uint64_t>(segment * (rv+0.5));
+                            is_one = !is_one;
+                        }
+                    }
+                    reinterpret_cast<uint8_t*>(h_mask)[i] = acc;
+                }
+            }
+            break;
+        case MASKTYPE_OFFSET: {
+                // marg denotes that every bit at index n%marg==0 is 1 and others 0, inverted mask if marg<0
+                bool invert = marg < 0;
+                int64_t offset = static_cast<int64_t>(marg);
+                offset = (offset == 0) ? 1 : offset;
+                for (int i = 0; i < size/8; i++) {
+                    uint32_t acc = 0;
+                    for (int j = 7; j >= 0; j--) {
+                        if ((i*8+(7-j)) % offset == 0) {
+                            acc |= (1<<j);
+                        }
+                    }
+                    reinterpret_cast<uint8_t*>(h_mask)[i] = (invert ? ~acc : acc);
+                }
+            }
+            break;
+        }
+        // copy mask to device
+        CUDA_TRY(cudaMemcpy(d_mask, h_mask, size / 8, cudaMemcpyHostToDevice));
+        // generate validation
+        if (!validation) {
+            return;
+        }
+        uint64_t val_idx = 0;
+        for (int i = 0; i < size/8; i++) {
+            uint32_t acc = reinterpret_cast<uint8_t*>(h_mask)[i];
+            for (int j = 7; j >= 0; j--) {
+                uint64_t idx = i*8 + (7-j);
+                bool v = 0b1 & (acc>>j);
+                if (v) {
+                    h_validation[val_idx++] = h_input[idx];
+                }
+            }
+        }
+        memset(&(h_validation[val_idx]), 0x00, (size-val_idx)*sizeof(T)); // set rest of validation space to 0x00
+    }
+
+    bool validate(uint64_t count)
+    {
+        if (count == 0) {
+            count = size;
+        }
+        int comp = std::memcmp(h_validation, h_output, count * sizeof(uint64_t));
+        if (comp != 0) {
+            fprintf(stderr, "validation failed!\n");
+            assert(false);
+            exit(1);
+        }
+        return true;
+    }
+};
 
 #endif
