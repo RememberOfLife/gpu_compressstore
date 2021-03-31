@@ -5,16 +5,53 @@
 
 #include "benchmark_data.cuh"
 #include "cuda_try.cuh"
+#include "kernels/kernel_4pass.cuh"
 #include "kernels/kernel_singlethread.cuh"
+
+template <typename T>
+void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count) {
+    T* h_buffer = static_cast<T*>(malloc(count*sizeof(T)));
+    CUDA_TRY(cudaMemcpy(h_buffer, d_buffer, count*sizeof(T), cudaMemcpyDeviceToHost));
+    for (int i = offset; i < offset+count; i++) {
+        std::bitset<sizeof(T)*8> bits(h_buffer[i]);
+        std::cout << bits << " - " << h_buffer[i] << "\n";
+    }
+    free(h_buffer);
+}
 
 int main()
 {
-    benchmark_data<uint64_t> bdata(true, 64); // 2<<17 = 1MiB worth of elems (2<<27 = 2GiB)
+    benchmark_data<uint64_t> bdata(true, 2<<17); // 2<<17 = 1MiB worth of elems (2<<27 = 2GiB)
     bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
 
-    kernel_singlethread<uint64_t><<<1,1>>>(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.size);
-    CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.size * sizeof(uint64_t), cudaMemcpyDeviceToHost));
     
+    // 4 pass algo
+    uint32_t chunk_length = 32;
+    uint32_t pass1_blockcount = 0;
+    uint32_t pass1_threadcount = 256;
+
+    uint32_t chunk_count = bdata.count / chunk_length;
+    // #1: pop count per chunk and populate IOV
+    uint16_t* d_pss; // prefix sum scan buffer on device
+    CUDA_TRY(cudaMalloc(&d_pss, chunk_count*sizeof(uint16_t)));
+    iovRow* d_iov; // intermediate optimization vector
+    CUDA_TRY(cudaMalloc(&d_iov, chunk_count*sizeof(iovRow)));
+    if (pass1_blockcount == 0) {
+        pass1_blockcount = (chunk_count/(chunk_length*pass1_threadcount))+1;
+        kernel_4pass_popcount_monolithic<<<pass1_blockcount, pass1_threadcount>>>(bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
+    } else {
+        kernel_4pass_popcount_striding<<<pass1_blockcount, pass1_threadcount>>>(bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
+    }
+    // #2: prefix sum scan (for partial trees)
+    // #3: optimization pass (sort or bucket skip launch)
+    // #4: processing of chunks
+
+    // free temporary device resources
+    CUDA_TRY(cudaFree(d_iov));
+    CUDA_TRY(cudaFree(d_pss));
+
+
+    CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(uint64_t), cudaMemcpyDeviceToHost));
     // print for testing (first 64 elems of input, validation and mask)
     std::bitset<8> maskset(bdata.h_mask[0]);
     std::cout << "maskset: " << maskset << "\n\n";
@@ -33,7 +70,7 @@ int main()
         std::cout << " - " << numbs << " - " << valid << " - " << gout << "\n";
     }//*/
 
-    bdata.validate(bdata.size);
+    //bdata.validate(bdata.count);
 
     printf("done");
     return 0;

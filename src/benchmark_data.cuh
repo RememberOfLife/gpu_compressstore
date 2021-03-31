@@ -19,7 +19,7 @@ enum MaskType {
 template <typename T>
 struct benchmark_data {
     bool validation;
-    uint64_t size; // elems
+    uint64_t count; // elems
     T* h_input;
     uint8_t* h_mask;
     T* h_validation; // correct results
@@ -30,14 +30,14 @@ struct benchmark_data {
     cudaEvent_t ce_start;
     cudaEvent_t ce_stop;
 
-    benchmark_data(bool validation, uint64_t size):
+    benchmark_data(bool validation, uint64_t count):
         validation(validation),
-        size(size)
+        count(count)
     {
         //TODO force byte_size to multiple of 32bit and element count to multiple of 8; fill with 0s at end
         // alloc memory for all pointers
-        uint64_t byte_size_data = size * sizeof(T);
-        uint64_t byte_size_mask = size / 8;
+        uint64_t byte_size_data = count * sizeof(T);
+        uint64_t byte_size_mask = count / 8;
         CUDA_TRY(cudaMallocHost(&h_input, byte_size_data));
         CUDA_TRY(cudaMallocHost(&h_mask, byte_size_mask));
         CUDA_TRY(cudaMallocHost(&h_validation, byte_size_data));
@@ -78,11 +78,11 @@ struct benchmark_data {
             break;
         case MASKTYPE_UNIFORM: {
                 // marg specifies chance of a bit being a 1
-                for (int i = 0; i < size/8; i++) {
+                for (int i = 0; i < count/8; i++) {
                     uint32_t acc = 0;
                     for (int j = 7; j >= 0; j--) {
                         double r = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
-                        if (r > marg) {
+                        if (r < marg) {
                             acc |= (1<<j);
                         }
                     }
@@ -96,8 +96,8 @@ struct benchmark_data {
                 // a = 1.2
                 // c = log10(n) / n
                 // k = 1.43
-                double c = log10(static_cast<double>(size)) / static_cast<double>(size);
-                for (int i = 0; i < size/8; i++) {
+                double c = log10(static_cast<double>(count)) / static_cast<double>(count);
+                for (int i = 0; i < count/8; i++) {
                     uint32_t acc = 0;
                     for (int j = 7; j >= 0; j--) {
                         double ev = marg * (1 / (pow((c*(i*8+(7-j))), 1.43)));
@@ -112,11 +112,11 @@ struct benchmark_data {
             break;
         case MASKTYPE_BURST: {
                 // marg sets pseudo segment distance, can be modified by up to +/-50% in size and is randomly 1/0
-                double segment = static_cast<double>(size) * marg;
+                double segment = static_cast<double>(count) * marg;
                 double rv = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
                 uint64_t current_length = static_cast<uint64_t>(segment * (rv+0.5));
                 bool is_one = false;
-                for (int i = 0; i < size/8; i++) {
+                for (int i = 0; i < count/8; i++) {
                     uint32_t acc = 0;
                     for (int j = 7; j >= 0; j--) {
                         if (is_one) {
@@ -137,7 +137,7 @@ struct benchmark_data {
                 bool invert = marg < 0;
                 int64_t offset = static_cast<int64_t>(marg);
                 offset = (offset == 0) ? 1 : offset;
-                for (int i = 0; i < size/8; i++) {
+                for (int i = 0; i < count/8; i++) {
                     uint32_t acc = 0;
                     for (int j = 7; j >= 0; j--) {
                         if ((i*8+(7-j)) % offset == 0) {
@@ -150,13 +150,13 @@ struct benchmark_data {
             break;
         }
         // copy mask to device
-        CUDA_TRY(cudaMemcpy(d_mask, h_mask, size / 8, cudaMemcpyHostToDevice));
+        CUDA_TRY(cudaMemcpy(d_mask, h_mask, count / 8, cudaMemcpyHostToDevice));
         // generate validation
         if (!validation) {
             return;
         }
         uint64_t val_idx = 0;
-        for (int i = 0; i < size/8; i++) {
+        for (int i = 0; i < count/8; i++) {
             uint32_t acc = reinterpret_cast<uint8_t*>(h_mask)[i];
             for (int j = 7; j >= 0; j--) {
                 uint64_t idx = i*8 + (7-j);
@@ -166,13 +166,13 @@ struct benchmark_data {
                 }
             }
         }
-        memset(&(h_validation[val_idx]), 0x00, (size-val_idx)*sizeof(T)); // set rest of validation space to 0x00
+        memset(&(h_validation[val_idx]), 0x00, (count-val_idx)*sizeof(T)); // set rest of validation space to 0x00
     }
 
     bool validate(uint64_t count)
     {
         if (count == 0) {
-            count = size;
+            count = count;
         }
         int comp = std::memcmp(h_validation, h_output, count * sizeof(uint64_t));
         if (comp != 0) {
