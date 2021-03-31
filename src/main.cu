@@ -27,8 +27,10 @@ int main()
     
     // 4 pass algo
     uint32_t chunk_length = 32;
-    uint32_t pass1_blockcount = 0;
+    uint32_t pass1_blockcount = 3;
     uint32_t pass1_threadcount = 256;
+    uint32_t pass2_blockcount = 0;
+    uint32_t pass2_threadcount = 256;
 
     uint32_t chunk_count = bdata.count / chunk_length;
     // #1: pop count per chunk and populate IOV
@@ -43,6 +45,8 @@ int main()
         kernel_4pass_popcount_striding<<<pass1_blockcount, pass1_threadcount>>>(bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
     }
     // #2: prefix sum scan (for partial trees)
+    gpu_buffer_print(d_pss, 0, 4);
+    gpu_buffer_print(reinterpret_cast<uint32_t*>(d_iov), 0, 4);
     // #3: optimization pass (sort or bucket skip launch)
     // #4: processing of chunks
 
@@ -52,7 +56,7 @@ int main()
 
 
     CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(uint64_t), cudaMemcpyDeviceToHost));
-    // print for testing (first 64 elems of input, validation and mask)
+    /*/ print for testing (first 64 elems of input, validation and mask)
     std::bitset<8> maskset(bdata.h_mask[0]);
     std::cout << "maskset: " << maskset << "\n\n";
     for (int i = 0; i < 64; i ++) {
