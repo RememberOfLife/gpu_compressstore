@@ -4,7 +4,8 @@
 #include <cstdint>
 
 template <typename T>
-__global__ void kernel_singlethread(T* input, uint8_t* mask, T* output, uint64_t N) {
+__global__ void kernel_singlethread(T* input, uint8_t* mask, T* output, uint64_t N)
+{
     uint64_t val_idx = 0;
     for (int i = 0; i < N/8; i++) {
         uint32_t acc = reinterpret_cast<uint8_t*>(mask)[i];
