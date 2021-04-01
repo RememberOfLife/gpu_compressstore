@@ -48,6 +48,15 @@ void launch_4pass_popc(uint32_t blockcount, uint32_t threadcount, uint8_t* d_mas
     }
 }
 
+__global__ void kernel_4pass_pssskip(uint32_t* pss, uint32_t* pss_total, uint32_t chunk_count)
+{
+    *pss_total += pss[chunk_count-1];
+}
+void launch_4pass_pssskip(uint32_t* d_pss, uint32_t* d_pss_total, uint32_t chunk_count)
+{
+    kernel_4pass_pssskip<<<1,1>>>(d_pss, d_pss_total, chunk_count);
+}
+
 //TODO template by blockdim for static shared memory allocation
 //TODO use shared memory reduction
 __global__ void kernel_4pass_pss_monolithic(uint32_t* pss, uint8_t depth, uint32_t chunk_count, uint32_t* out_count)
@@ -73,7 +82,8 @@ void launch_4pass_pss(uint32_t blockcount, uint32_t threadcount, uint32_t* d_pss
 }
 
 template <typename T>
-__global__ void kernel_4pass_fproc_monolithic(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count) {
+__global__ void kernel_4pass_fproc_monolithic(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count)
+{
     uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (tid >= chunk_count) {
         return;
@@ -93,7 +103,8 @@ __global__ void kernel_4pass_fproc_monolithic(T* input, T* output, uint8_t* mask
 }
 
 template <typename T>
-__global__ void kernel_4pass_fproc_striding(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count) {
+__global__ void kernel_4pass_fproc_striding(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count)
+{
 
 }
 

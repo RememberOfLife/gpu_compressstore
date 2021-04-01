@@ -44,13 +44,15 @@ int main()
     CUDA_TRY(cudaMalloc(&d_iov, chunk_count*sizeof(iovRow)));
     uint32_t* d_pss_total; // pss total
     CUDA_TRY(cudaMalloc(&d_pss_total, sizeof(uint32_t)));
-    uint32_t h_pss_total = bdata.count;
+    CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
+    uint32_t h_pss_total = 0;
     // #1: pop count per chunk and populate IOV
     launch_4pass_popc(pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
     //launch_4pass_pss(pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
     {
         // use cub pss for now
+        launch_4pass_pssskip(d_pss, d_pss_total, chunk_count);
         uint32_t* d_pss_tmp;
         CUDA_TRY(cudaMalloc(&d_pss_tmp, chunk_count*sizeof(uint32_t)));
         void* d_temp_storage = NULL;
@@ -63,9 +65,9 @@ int main()
         //d_pss = d_pss_tmp;
         CUDA_TRY(cudaMemcpy(d_pss, d_pss_tmp, chunk_count*sizeof(uint32_t), cudaMemcpyDeviceToDevice));
         CUDA_TRY(cudaFree(d_pss_tmp));
-        //CUDA_TRY(cudaMemcpy(d_pss_total, d_pss+(sizeof(uint32_t)*(chunk_count-1)), sizeof(uint32_t), cudaMemcpyDeviceToDevice));
+        launch_4pass_pssskip(d_pss, d_pss_total, chunk_count);
     }
-    //CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+    CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost));
     // #3: optimization pass (sort or bucket skip launch)
     // #4: processing of chunks
     launch_4pass_fproc(pass4_blockcount, pass4_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, chunk_length, chunk_count);
@@ -75,7 +77,7 @@ int main()
     CUDA_TRY(cudaFree(d_pss));
 
 
-    CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, h_pss_total*sizeof(uint64_t), cudaMemcpyDeviceToHost));
+    CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(uint64_t), cudaMemcpyDeviceToHost));
     // print for testing (first 64 elems of input, validation and mask)
     std::bitset<8> maskset(bdata.h_mask[0]);
     std::cout << "maskset: " << maskset << "\n\n";
