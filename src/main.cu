@@ -47,7 +47,6 @@ int main()
     uint32_t h_pss_total = bdata.count;
     // #1: pop count per chunk and populate IOV
     launch_4pass_popc(pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
-    gpu_buffer_print(d_pss, 8192);
     // #2: prefix sum scan (for partial trees)
     //launch_4pass_pss(pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
     {
@@ -70,8 +69,6 @@ int main()
     // #3: optimization pass (sort or bucket skip launch)
     // #4: processing of chunks
     launch_4pass_fproc(pass4_blockcount, pass4_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, chunk_length, chunk_count);
-
-    //gpu_buffer_print(reinterpret_cast<uint32_t*>(d_iov), 4);
 
     // free temporary device resources
     CUDA_TRY(cudaFree(d_iov));

@@ -10,11 +10,11 @@ struct iovRow {
 
 __global__ void kernel_4pass_popc_monolithic(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
 {
-    uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; // thread index
-    uint32_t idx = (chunk_length/32) * tid; // index for 1st 32bit-element of this chunk
+    uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; // thread index = chunk id
     if (tid >= chunk_count) {
         return;
     }
+    uint32_t idx = (chunk_length/32) * tid; // index for 1st 32bit-element of this chunk
     // assuming chunk_length to be multiple of 32
     uint32_t popcount = 0;
     for (int i = 0; i < chunk_length/32; i++) {
@@ -41,7 +41,7 @@ __global__ void kernel_4pass_popc_striding(uint8_t* mask, uint32_t* pss, iovRow*
 void launch_4pass_popc(uint32_t blockcount, uint32_t threadcount, uint8_t* d_mask, uint32_t* d_pss, iovRow* d_iov, uint32_t chunk_length, uint32_t chunk_count)
 {
     if (blockcount == 0) {
-        blockcount = (chunk_count/(chunk_length*threadcount))+1;
+        blockcount = (chunk_count/threadcount)+1;
         kernel_4pass_popc_monolithic<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count);
     } else {
         kernel_4pass_popc_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count);
