@@ -23,7 +23,7 @@ void gpu_buffer_print(T* d_buffer, uint32_t count)
 
 int main()
 {
-    benchmark_data<uint64_t> bdata(true, 1<<18); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
+    benchmark_data<uint64_t> bdata(true, 128); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
     bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
 
     CUDA_TRY(cudaMemset(bdata.d_output, 0x00, sizeof(uint64_t)*bdata.count));
@@ -32,8 +32,8 @@ int main()
     uint32_t chunk_length = 32;
     uint32_t pass1_blockcount = 0;
     uint32_t pass1_threadcount = 256;
-    //uint32_t pass2_blockcount = 0;
-    //uint32_t pass2_threadcount = 256;
+    uint32_t pass2_blockcount = 0;
+    uint32_t pass2_threadcount = 256;
     uint32_t pass4_blockcount = 0;
     uint32_t pass4_threadcount = 256;
 
@@ -49,24 +49,11 @@ int main()
     // #1: pop count per chunk and populate IOV
     launch_4pass_popc(pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
-    //launch_4pass_pss(pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
-    {
-        // use cub pss for now
-        launch_4pass_pssskip(d_pss, d_pss_total, chunk_count);
-        uint32_t* d_pss_tmp;
-        CUDA_TRY(cudaMalloc(&d_pss_tmp, chunk_count*sizeof(uint32_t)));
-        void* d_temp_storage = NULL;
-        size_t temp_storage_bytes = 0;
-        CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_pss, d_pss_tmp, chunk_count));
-        CUDA_TRY(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-        CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_pss, d_pss_tmp, chunk_count));
-        CUDA_TRY(cudaFree(d_temp_storage));
-        //uint32_t* d_pss_die = d_pss;
-        //d_pss = d_pss_tmp;
-        CUDA_TRY(cudaMemcpy(d_pss, d_pss_tmp, chunk_count*sizeof(uint32_t), cudaMemcpyDeviceToDevice));
-        CUDA_TRY(cudaFree(d_pss_tmp));
-        launch_4pass_pssskip(d_pss, d_pss_total, chunk_count);
-    }
+    gpu_buffer_print(d_pss, 4);
+    std::cout << "---\n";
+    launch_4pass_pss(pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
+    gpu_buffer_print(d_pss, 4);
+    /*cub launch as alternative*/
     CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost));
     // #3: optimization pass (sort or bucket skip launch)
     // #4: processing of chunks
@@ -75,13 +62,14 @@ int main()
     // free temporary device resources
     CUDA_TRY(cudaFree(d_iov));
     CUDA_TRY(cudaFree(d_pss));
+    CUDA_TRY(cudaFree(d_pss_total));
 
 
     CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(uint64_t), cudaMemcpyDeviceToHost));
-    // print for testing (first 64 elems of input, validation and mask)
+    /*/ print for testing (first 64 elems of input, validation and mask)
     std::bitset<8> maskset(bdata.h_mask[0]);
     std::cout << "maskset: " << maskset << "\n\n";
-    for (int i = 130920; i < 130920+64; i ++) {
+    for (int i = 0; i < 64; i ++) {
         // mask value for this input
         uint32_t offset32 = i % 8;
         uint32_t base32 = (i-offset32) / 8;
@@ -96,7 +84,7 @@ int main()
         std::cout << " - " << numbs << " - " << valid << " - " << gout << "\n";
     }//*/
 
-    std::cout << h_pss_total << "\n";
+    std::cout << "selected:" << h_pss_total << "\n";
     bdata.validate(h_pss_total);
 
     printf("done");
