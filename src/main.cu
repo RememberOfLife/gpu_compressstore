@@ -57,7 +57,7 @@ int main()
     CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost));
     // #3: optimization pass (sort or bucket skip launch)
     // #4: processing of chunks
-    launch_4pass_fproc(pass4_blockcount, pass4_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, chunk_length, chunk_count);
+    launch_4pass_pproc(pass4_blockcount, pass4_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, chunk_length, chunk_count);
 
     // free temporary device resources
     CUDA_TRY(cudaFree(d_iov));
@@ -66,7 +66,7 @@ int main()
 
 
     CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(uint64_t), cudaMemcpyDeviceToHost));
-    /*/ print for testing (first 64 elems of input, validation and mask)
+    // print for testing (first 64 elems of input, validation and mask)
     std::bitset<8> maskset(bdata.h_mask[0]);
     std::cout << "maskset: " << maskset << "\n\n";
     for (int i = 0; i < 64; i ++) {

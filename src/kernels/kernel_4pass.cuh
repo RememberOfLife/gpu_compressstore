@@ -111,14 +111,35 @@ void launch_4pass_pss(uint32_t blockcount, uint32_t threadcount, uint32_t* d_pss
     }
 }
 
-template <typename T>
-__global__ void kernel_4pass_fproc_monolithic(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count)
+__device__ uint32_t d_4pass_pproc_pssidx(uint32_t thread_idx, uint32_t* pss, uint32_t chunk_count_p2)
+{
+    chunk_count_p2 /= 2; // start by trying the subtree with length of half the next rounded up power of 2 of chunk_count
+    uint32_t consumed = 0; // length of subtrees already fit inside idx_acc
+    uint32_t idx_acc = 0; // assumed starting position for this chunk
+    while (chunk_count_p2 >= 1) {
+        if (thread_idx >= consumed+chunk_count_p2) {
+            // partial tree [consumed, consumed+chunk_count_p2] fits into left side of thread_idx
+            idx_acc += pss[consumed+chunk_count_p2-1];
+            consumed += chunk_count_p2;
+        }
+        chunk_count_p2 /= 2;
+    }
+    return idx_acc;
+}
+
+template <typename T, bool complete_pss>
+__global__ void kernel_4pass_proc_monolithic(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count, uint32_t chunk_count_p2)
 {
     uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (tid >= chunk_count) {
         return;
     }
-    uint32_t out_idx = pss[tid];
+    uint32_t out_idx;
+    if (complete_pss) {
+        out_idx = pss[tid];
+    } else {
+        out_idx = d_4pass_pproc_pssidx(tid, pss, chunk_count_p2);
+    }
     uint32_t element_idx = tid*chunk_length/8;
     for (uint32_t i = element_idx; i < element_idx+chunk_length/8; i++) {
         uint8_t acc = mask[i];
@@ -132,21 +153,37 @@ __global__ void kernel_4pass_fproc_monolithic(T* input, T* output, uint8_t* mask
     }
 }
 
-template <typename T>
-__global__ void kernel_4pass_fproc_striding(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count)
+template <typename T, bool complete_pss>
+__global__ void kernel_4pass_proc_striding(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count, uint32_t chunk_count_p2)
 {
 
 }
 
-// full processing (i.e. pss is complete scan)
+// processing (for complete pss)
 template <typename T>
 void launch_4pass_fproc(uint32_t blockcount, uint32_t threadcount, T* d_input, T* d_output, uint8_t* d_mask, uint32_t* d_pss, uint32_t chunk_length, uint32_t chunk_count)
 {
     if (blockcount == 0) {
         blockcount = (chunk_count/threadcount)+1;
-        kernel_4pass_fproc_monolithic<<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count);
+        kernel_4pass_proc_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, 0);
     } else {
-        kernel_4pass_fproc_striding<<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count);
+        kernel_4pass_proc_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, 0);
+    }
+}
+
+// processing (for partial pss)
+template <typename T>
+void launch_4pass_pproc(uint32_t blockcount, uint32_t threadcount, T* d_input, T* d_output, uint8_t* d_mask, uint32_t* d_pss, uint32_t chunk_length, uint32_t chunk_count)
+{
+    uint32_t chunk_count_ps = 1;
+    while (chunk_count_ps < chunk_count) {
+        chunk_count_ps *= 2;
+    }
+    if (blockcount == 0) {
+        blockcount = (chunk_count/threadcount)+1;
+        kernel_4pass_proc_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_ps);
+    } else {
+        kernel_4pass_proc_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_ps);
     }
 }
 
