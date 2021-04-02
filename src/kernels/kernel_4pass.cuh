@@ -74,7 +74,7 @@ __global__ void kernel_4pass_pss_monolithic(uint32_t* pss, uint8_t depth, uint32
     if (tid < chunk_count) {
         left_e = pss[tid];
     } else {
-        dead_chunk = true;
+        return;
     }
     if (tid+stride < chunk_count) {
         right_e = pss[tid+stride];
@@ -99,10 +99,13 @@ void launch_4pass_pss(uint32_t blockcount, uint32_t threadcount, uint32_t* d_pss
     //TODO repeat for reduction depths
     if (blockcount == 0) {
         blockcount = (chunk_count/(threadcount*2))+1;
-        double maxdepth = log2(chunk_count)+2; // do one more iteration than required to force spill of result into d_out_count
+        double maxdepth = log2(chunk_count)+1;
+        // reduce blockcount every depth iteration
         for (int i = 0; i < maxdepth; i++) {
-        kernel_4pass_pss_monolithic<<<blockcount, threadcount>>>(d_pss, i, chunk_count, d_out_count);
+            kernel_4pass_pss_monolithic<<<blockcount, threadcount>>>(d_pss, i, chunk_count, d_out_count);
         }
+        // last pass forces result into d_out_count
+        kernel_4pass_pss_monolithic<<<1, 1>>>(d_pss, static_cast<uint8_t>(maxdepth), chunk_count, d_out_count);
     } else {
         kernel_4pass_pss_striding<<<blockcount, threadcount>>>(d_pss, 0, chunk_count, d_out_count);
     }
