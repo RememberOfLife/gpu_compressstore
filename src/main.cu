@@ -23,7 +23,7 @@ void gpu_buffer_print(T* d_buffer, uint32_t count)
 
 int main()
 {
-    benchmark_data<uint64_t> bdata(true, 128); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
+    benchmark_data<uint64_t> bdata(true, 1<<18); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
     bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
 
     CUDA_TRY(cudaMemset(bdata.d_output, 0x00, sizeof(uint64_t)*bdata.count));
@@ -49,12 +49,11 @@ int main()
     // #1: pop count per chunk and populate IOV
     launch_4pass_popc(pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
-    gpu_buffer_print(d_pss, 4);
-    std::cout << "---\n";
     launch_4pass_pss(pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
-    gpu_buffer_print(d_pss, 4);
     /*cub launch as alternative*/
-    CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+    CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost)); // copy total popcount to host
+    double mask_dp = static_cast<double>(h_pss_total) / static_cast<double>(bdata.count); // distribution parameter (assuming uniform distribution)
+    std::cout << "MDP:" << mask_dp << "\n";
     // #3: optimization pass (sort or bucket skip launch)
     // #4: processing of chunks
     launch_4pass_pproc(pass4_blockcount, pass4_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, chunk_length, chunk_count);

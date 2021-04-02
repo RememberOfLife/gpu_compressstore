@@ -91,7 +91,29 @@ __global__ void kernel_4pass_pss_monolithic(uint32_t* pss, uint8_t depth, uint32
 
 __global__ void kernel_4pass_pss_striding(uint32_t* pss, uint8_t depth, uint32_t chunk_count, uint32_t* out_count)
 {
-    
+    uint32_t stride = (1<<depth);
+    for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
+        tid = 2*tid*stride+stride-1;
+        uint32_t left_e = 0;
+        uint32_t right_e = 0;
+        bool dead_chunk = false;
+        if (tid < chunk_count) {
+            left_e = pss[tid];
+        } else {
+            return;
+        }
+        if (tid+stride < chunk_count) {
+            right_e = pss[tid+stride];
+        } else {
+            dead_chunk = true;
+        }
+        uint32_t total = left_e + right_e + (dead_chunk ? (*out_count) : 0);
+        if (tid+stride < chunk_count) {
+            pss[tid+stride] = total;
+        } else {
+            (*out_count) = total;
+        }
+    }
 }
 
 void launch_4pass_pss(uint32_t blockcount, uint32_t threadcount, uint32_t* d_pss, uint32_t chunk_count, uint32_t* d_out_count)
