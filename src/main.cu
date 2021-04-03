@@ -65,7 +65,7 @@ int main()
 
 
     CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(uint64_t), cudaMemcpyDeviceToHost));
-    // print for testing (first 64 elems of input, validation and mask)
+    /*/ print for testing (first 64 elems of input, validation and mask)
     std::bitset<8> maskset(bdata.h_mask[0]);
     std::cout << "maskset: " << maskset << "\n\n";
     for (int i = 0; i < 64; i ++) {

@@ -178,7 +178,25 @@ __global__ void kernel_4pass_proc_monolithic(T* input, T* output, uint8_t* mask,
 template <typename T, bool complete_pss>
 __global__ void kernel_4pass_proc_striding(T* input, T* output, uint8_t* mask, uint32_t* pss, uint32_t chunk_length, uint32_t chunk_count, uint32_t chunk_count_p2)
 {
-
+    for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
+        uint32_t out_idx;
+        if (complete_pss) {
+            out_idx = pss[tid];
+        } else {
+            out_idx = d_4pass_pproc_pssidx(tid, pss, chunk_count_p2);
+        }
+        uint32_t element_idx = tid*chunk_length/8;
+        for (uint32_t i = element_idx; i < element_idx+chunk_length/8; i++) {
+            uint8_t acc = mask[i];
+            for (int j = 7; j >= 0; j--) {
+                uint64_t idx = i*8 + (7-j);
+                bool v = 0b1 & (acc>>j);
+                if (v) {
+                    output[out_idx++] = input[idx];
+                }
+            }
+        }
+    }
 }
 
 // processing (for complete pss)
