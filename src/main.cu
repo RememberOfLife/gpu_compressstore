@@ -47,16 +47,16 @@ int main()
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
     uint32_t h_pss_total = 0;
     // #1: pop count per chunk and populate IOV
-    launch_4pass_popc(pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
+    launch_4pass_popc(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
-    launch_4pass_pss(pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
+    launch_4pass_pss(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
     /*cub launch as alternative*/
     CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost)); // copy total popcount to host
     double mask_dp = static_cast<double>(h_pss_total) / static_cast<double>(bdata.count); // distribution parameter (assuming uniform distribution)
     std::cout << "MDP:" << mask_dp << "\n";
     // #3: optimization pass (sort or bucket skip launch)
     // #4: processing of chunks
-    launch_4pass_pproc(pass4_blockcount, pass4_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, chunk_length, chunk_count);
+    launch_4pass_pproc(bdata.ce_start, bdata.ce_stop, pass4_blockcount, pass4_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, chunk_length, chunk_count);
 
     // free temporary device resources
     CUDA_TRY(cudaFree(d_iov));
