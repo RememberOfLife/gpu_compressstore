@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "benchmark_data.cuh"
+#include "cub_wraps.cuh"
 #include "cuda_try.cuh"
 #include "kernels/kernel_4pass.cuh"
 #include "kernels/kernel_singlethread.cuh"
@@ -27,7 +28,7 @@ int main()
     bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
 
     CUDA_TRY(cudaMemset(bdata.d_output, 0x00, sizeof(uint64_t)*bdata.count));
-    
+
     // 4 pass algo
     uint32_t chunk_length = 32;
     uint32_t pass1_blockcount = 0;
@@ -84,7 +85,7 @@ int main()
     }//*/
 
     std::cout << "selected:" << h_pss_total << "\n";
-    bdata.validate(h_pss_total);
+    bdata.validate(bdata.count);
 
     printf("done");
     return 0;

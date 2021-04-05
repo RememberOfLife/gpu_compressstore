@@ -11,10 +11,13 @@ set(SOURCES
     src/main.cu
 
     src/benchmark_data.cuh
+    src/cub_wraps.cuh
+    src/cuda_time.cuh
     src/cuda_try.cuh
     src/fast_prng.cpp
     src/fast_prng.hpp
 
+    src/kernels/kernel_4pass.cuh
     src/kernels/kernel_singlethread.cuh
 )
 
