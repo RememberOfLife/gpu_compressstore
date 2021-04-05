@@ -15,7 +15,7 @@
 
 static void report_cuda_error(cudaError_t err, const char* cmd, const char* file, int line, bool die)
 {
-    printf("CUDA Error at %s:%i%s%s\n%s", file, line, cmd ? ": " : "", cmd ? cmd : "", cudaGetErrorString(err));
+    printf("CUDA Error at %s:%i%s%s\n%s\n", file, line, cmd ? ": " : "", cmd ? cmd : "", cudaGetErrorString(err));
     assert(false);
     if (die) exit(EXIT_FAILURE);
 }

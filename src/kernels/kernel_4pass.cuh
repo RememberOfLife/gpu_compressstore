@@ -277,18 +277,18 @@ float launch_4pass_pproc(
     uint32_t chunk_count)
 {
     float time;
-    uint32_t chunk_count_ps = 1;
-    while (chunk_count_ps < chunk_count) {
-        chunk_count_ps *= 2;
+    uint32_t chunk_count_p2 = 1;
+    while (chunk_count_p2 < chunk_count) {
+        chunk_count_p2 *= 2;
     }
     if (blockcount == 0) {
         blockcount = (chunk_count/threadcount)+1;
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_proc_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_ps))
+            (kernel_4pass_proc_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_proc_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_ps))
+            (kernel_4pass_proc_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
         );
     }
     return time;
