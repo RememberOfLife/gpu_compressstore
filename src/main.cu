@@ -11,10 +11,10 @@
 #include "kernels/kernel_singlethread.cuh"
 
 template <typename T>
-void gpu_buffer_print(T* d_buffer, uint32_t count)
+void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
 {
     T* h_buffer = static_cast<T*>(malloc(count*sizeof(T)));
-    CUDA_TRY(cudaMemcpy(h_buffer, d_buffer, count*sizeof(T), cudaMemcpyDeviceToHost));
+    CUDA_TRY(cudaMemcpy(h_buffer, d_buffer+offset, count*sizeof(T), cudaMemcpyDeviceToHost));
     for (int i = 0; i < count; i++) {
         std::bitset<sizeof(T)*8> bits(h_buffer[i]);
         std::cout << bits << " - " << h_buffer[i] << "\n";
@@ -54,7 +54,7 @@ int main()
     /*cub launch as alternative*/
     CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost)); // copy total popcount to host
     double mask_dp = static_cast<double>(h_pss_total) / static_cast<double>(bdata.count); // distribution parameter (assuming uniform distribution)
-    std::cout << "MDP:" << mask_dp << "\n";
+    std::cout << "MDP: " << mask_dp << "\n";
     // #3: optimization pass (sort or bucket skip launch)
     // #4: processing of chunks
     launch_4pass_pproc(bdata.ce_start, bdata.ce_stop, pass4_blockcount, pass4_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, chunk_length, chunk_count);
@@ -84,7 +84,7 @@ int main()
         std::cout << " - " << numbs << " - " << valid << " - " << gout << "\n";
     }//*/
 
-    std::cout << "selected:" << h_pss_total << "\n";
+    std::cout << "selected: " << h_pss_total << "\n";
     bdata.validate(bdata.count);
 
     printf("done");

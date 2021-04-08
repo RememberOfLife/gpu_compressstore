@@ -79,10 +79,9 @@ struct benchmark_data {
         case MASKTYPE_UNIFORM: {
                 // marg specifies chance of a bit being a 1
                 for (int i = 0; i < count/8; i++) {
-                    uint32_t acc = 0;
+                    uint8_t acc = 0;
                     for (int j = 7; j >= 0; j--) {
-                        double r = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
-                        if (r < marg) {
+                        if (rng.rand() < marg*UINT32_MAX) {
                             acc |= (1<<j);
                         }
                     }
@@ -98,7 +97,7 @@ struct benchmark_data {
                 // k = 1.43
                 double c = log10(static_cast<double>(count)) / static_cast<double>(count);
                 for (int i = 0; i < count/8; i++) {
-                    uint32_t acc = 0;
+                    uint8_t acc = 0;
                     for (int j = 7; j >= 0; j--) {
                         double ev = marg * (1 / (pow((c*(i*8+(7-j))), 1.43)));
                         double rv = static_cast<double>(rng.rand())/static_cast<double>(UINT32_MAX);
@@ -117,7 +116,7 @@ struct benchmark_data {
                 uint64_t current_length = static_cast<uint64_t>(segment * (rv+0.5));
                 bool is_one = false;
                 for (int i = 0; i < count/8; i++) {
-                    uint32_t acc = 0;
+                    uint8_t acc = 0;
                     for (int j = 7; j >= 0; j--) {
                         if (is_one) {
                             acc |= (1<<j);
@@ -138,7 +137,7 @@ struct benchmark_data {
                 int64_t offset = static_cast<int64_t>(marg);
                 offset = (offset == 0) ? 1 : offset;
                 for (int i = 0; i < count/8; i++) {
-                    uint32_t acc = 0;
+                    uint8_t acc = 0;
                     for (int j = 7; j >= 0; j--) {
                         if ((i*8+(7-j)) % offset == 0) {
                             acc |= (1<<j);
@@ -155,6 +154,7 @@ struct benchmark_data {
         if (!validation) {
             return;
         }
+        uint32_t onecount = 0;
         uint64_t val_idx = 0;
         for (int i = 0; i < count/8; i++) {
             uint32_t acc = reinterpret_cast<uint8_t*>(h_mask)[i];
@@ -162,10 +162,12 @@ struct benchmark_data {
                 uint64_t idx = i*8 + (7-j);
                 bool v = 0b1 & (acc>>j);
                 if (v) {
+                    onecount++;
                     h_validation[val_idx++] = h_input[idx];
                 }
             }
         }
+        std::cout << "onecount: " << onecount << "\n";
         memset(&(h_validation[val_idx]), 0x00, (count-val_idx)*sizeof(T)); // set rest of validation space to 0x00
     }
 
@@ -177,8 +179,7 @@ struct benchmark_data {
         int comp = std::memcmp(h_validation, h_output, count * sizeof(uint64_t));
         if (comp != 0) {
             fprintf(stderr, "validation failed!\n");
-            assert(false);
-            exit(1);
+            return false;
         }
         return true;
     }
