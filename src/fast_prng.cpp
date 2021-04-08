@@ -9,6 +9,7 @@ void fast_prng::srand(uint64_t seed)
     z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
     z = (z ^ (z >> 27)) * UINT64_C(0x94D049BB133111EB);
     state =  z ^ (z >> 31);
+    inc = 1;
 }
 
 uint32_t fast_prng::rand()
