@@ -50,7 +50,7 @@ int main()
     // #1: pop count per chunk and populate IOV
     launch_4pass_popc(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
-    launch_4pass_pss(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
+    launch_4pass_pss_gmem(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
     /*cub launch as alternative*/
     CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost)); // copy total popcount to host
     double mask_dp = static_cast<double>(h_pss_total) / static_cast<double>(bdata.count); // distribution parameter (assuming uniform distribution)
