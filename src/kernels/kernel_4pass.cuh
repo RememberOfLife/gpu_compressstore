@@ -100,13 +100,13 @@ __global__ void kernel_4pass_pss_striding(uint32_t* pss, uint8_t depth, uint32_t
 {
     uint64_t stride = (1<<depth);
     for (uint64_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
-        tid = 2*tid*stride+stride-1;
-        if (tid >= chunk_count) {
+        uint64_t cid = 2*tid*stride+stride-1; // calc chunk id
+        if (cid >= chunk_count) {
             return;
         }
-        uint32_t left_e = pss[tid];
-        if (tid+stride < chunk_count) {
-            pss[tid+stride] += left_e;
+        uint32_t left_e = pss[cid];
+        if (cid+stride < chunk_count) {
+            pss[cid+stride] += left_e;
         } else {
             (*out_count) = left_e;
         }
@@ -144,6 +144,10 @@ float launch_4pass_pss(
         time += ptime;
     } else {
         for (int i = 0; i < max_depth; i++) {
+            uint32_t req_blockcount = ((chunk_count>>i)/(threadcount*2))+1;
+            if (blockcount > req_blockcount) {
+                blockcount = req_blockcount;
+            }
             CUDA_TIME(ce_start, ce_stop, 0, &ptime,
                 (kernel_4pass_pss_striding<<<blockcount, threadcount>>>(d_pss, i, chunk_count, d_out_count))
             );
@@ -151,7 +155,7 @@ float launch_4pass_pss(
         }
         // last pass forces result into d_out_count
         CUDA_TIME(ce_start, ce_stop, 0, &ptime,
-            (kernel_4pass_pss_striding<<<blockcount, threadcount>>>(d_pss, static_cast<uint8_t>(max_depth), chunk_count, d_out_count))
+            (kernel_4pass_pss_monolithic<<<1, 1>>>(d_pss, static_cast<uint8_t>(max_depth), chunk_count, d_out_count))
         );
         time += ptime;
     }
