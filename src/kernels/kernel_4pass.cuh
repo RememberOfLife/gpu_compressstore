@@ -67,6 +67,20 @@ float launch_4pass_popc_simple(
     return time;
 }
 
+#define KERNEL_4PASS_POPC_IOV_PROCBYTE(byte)                                                                      \
+    mask_byte = static_cast<uint8_t>(byte);                                                                       \
+    popcount += __popc(mask_byte);                                                                                \
+    byte_acc_ones &= mask_byte;                                                                                   \
+    byte_acc_zero |= mask_byte;                                                                                   \
+    byte_acc_count--;                                                                                             \
+    if (byte_acc_count == 0) {                                                                                    \
+        mask_repr |= ( ((byte_acc_ones == 0xFF)&0b1)<<1 | ((byte_acc_zero == 0x00)&0b1) )<<(mask_repr_pos*2);     \
+        mask_repr_pos--;                                                                                          \
+        byte_acc_count = mask_repr_power>>((mask_repr_pos*2 + 1) < mask_repr_switch);                             \
+        byte_acc_ones = 0xFF;                                                                                     \
+        byte_acc_zero = 0x00;                                                                                     \
+    }
+
 __global__ void kernel_4pass_popc_iov_monolithic(
     uint8_t* mask,
     uint32_t* pss,
@@ -90,25 +104,12 @@ __global__ void kernel_4pass_popc_iov_monolithic(
     uint8_t byte_acc_ones = 0xFF;
     uint8_t byte_acc_zero = 0x00;
     for (int i = 0; i < chunk_length32; i++) {
-        //FIXME use 4 bytes of shared memory to keep this properly
-        // also maybe use more bytes and store entire chunk bytes in smem for processing
-        uint32_t mask_elem = reinterpret_cast<uint32_t*>(mask)[idx+i];
-        popcount += __popc(mask_elem);
-        for (int j = 3; j >= 0; j--) {
-            // little endian screws up everything here
-            uint8_t mask_byte = mask[idx+i+(3-j)]; // isn't cached, should use smem intermediate storage
-            byte_acc_ones &= mask_byte;
-            byte_acc_zero |= mask_byte;
-            byte_acc_count--;
-            if (byte_acc_count == 0) {
-                // save acumulated byte stream stats to 2 bits in mask_repr at mask_repr_pos
-                mask_repr |= ( ((byte_acc_ones == 0xFF)&0b1)<<1 | ((byte_acc_zero == 0x00)&0b1) )<<(mask_repr_pos*2);
-                mask_repr_pos--;
-                byte_acc_count = mask_repr_power>>((mask_repr_pos*2 + 1) < mask_repr_switch);
-                byte_acc_ones = 0xFF;
-                byte_acc_zero = 0x00;
-            }
-        }
+        uchar4 mask_elem = reinterpret_cast<uchar4*>(mask)[idx+i];
+        uint8_t mask_byte;
+        KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.x);
+        KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.y);
+        KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.z);
+        KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.w);
     }
     pss[tid] = popcount;
     iov[tid] = iovRow{tid, mask_repr};
@@ -134,25 +135,12 @@ __global__ void kernel_4pass_popc_iov_striding(
         uint8_t byte_acc_ones = 0xFF;
         uint8_t byte_acc_zero = 0x00;
         for (int i = 0; i < chunk_length32; i++) {
-            //FIXME use 4 bytes of shared memory to keep this properly
-            // also maybe use more bytes and store entire chunk bytes in smem for processing
-            uint32_t mask_elem = reinterpret_cast<uint32_t*>(mask)[idx+i];
-            popcount += __popc(mask_elem);
-            for (int j = 3; j >= 0; j--) {
-                // little endian screws up everything here
-                uint8_t mask_byte = mask[idx+i+(3-j)]; // isn't cached, should use smem intermediate storage
-                byte_acc_ones &= mask_byte;
-                byte_acc_zero |= mask_byte;
-                byte_acc_count--;
-                if (byte_acc_count == 0) {
-                    // save acumulated byte stream stats to 2 bits in mask_repr at mask_repr_pos
-                    mask_repr |= ( ((byte_acc_ones == 0xFF)&0b1)<<1 | ((byte_acc_zero == 0x00)&0b1) )<<(mask_repr_pos*2);
-                    mask_repr_pos--;
-                    byte_acc_count = mask_repr_power>>((mask_repr_pos*2 + 1) < mask_repr_switch);
-                    byte_acc_ones = 0xFF;
-                    byte_acc_zero = 0x00;
-                }
-            }
+            uchar4 mask_elem = reinterpret_cast<uchar4*>(mask)[idx+i];
+            uint8_t mask_byte;
+            KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.x);
+            KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.y);
+            KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.z);
+            KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.w);
         }
         pss[tid] = popcount;
         iov[tid] = iovRow{tid, mask_repr};
