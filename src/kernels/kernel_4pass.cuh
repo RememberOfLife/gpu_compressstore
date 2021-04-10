@@ -11,29 +11,29 @@ struct iovRow {
     uint32_t mask_repr;
 };
 
-__global__ void kernel_4pass_popc_simple_monolithic(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
+__global__ void kernel_4pass_popc_simple_monolithic(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length32, uint32_t chunk_count)
 {
     uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; // thread index = chunk id
     if (tid >= chunk_count) {
         return;
     }
-    uint32_t idx = (chunk_length/32) * tid; // index for 1st 32bit-element of this chunk
+    uint32_t idx = chunk_length32 * tid; // index for 1st 32bit-element of this chunk
     // assuming chunk_length to be multiple of 32
     uint32_t popcount = 0;
-    for (int i = 0; i < chunk_length/32; i++) {
+    for (int i = 0; i < chunk_length32; i++) {
         popcount += __popc(reinterpret_cast<uint32_t*>(mask)[idx+i]);
     }
     pss[tid] = popcount;
     iov[tid] = iovRow{tid, popcount};
 }
 
-__global__ void kernel_4pass_popc_simple_striding(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
+__global__ void kernel_4pass_popc_simple_striding(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length32, uint32_t chunk_count)
 {
     for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
-        uint32_t idx = (chunk_length/32) * tid; // index for 1st 32bit-element of this chunk
+        uint32_t idx = chunk_length32 * tid; // index for 1st 32bit-element of this chunk
         // assuming chunk_length to be multiple of 32
         uint32_t popcount = 0;
-        for (int i = 0; i < chunk_length/32; i++) {
+        for (int i = 0; i < chunk_length32; i++) {
             popcount += __popc(reinterpret_cast<uint32_t*>(mask)[idx+i]);
         }
         pss[tid] = popcount;
@@ -53,14 +53,15 @@ float launch_4pass_popc_simple(
     uint32_t chunk_count)
 {
     float time;
+    uint32_t chunk_length32 = chunk_length / 32;
     if (blockcount == 0) {
         blockcount = (chunk_count/threadcount)+1;
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_simple_monolithic<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count))
+            (kernel_4pass_popc_simple_monolithic<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_simple_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count))
+            (kernel_4pass_popc_simple_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
         );
     }
     return time;
@@ -82,7 +83,6 @@ __global__ void kernel_4pass_popc_iov_monolithic(
     uint32_t idx = chunk_length32 * tid; // index for 1st 32bit-element of this chunk
     // assuming chunk_length to be multiple of 32
     uint32_t popcount = 0;
-
     uint32_t mask_repr = 0;
     // splicing together these vars in one uint32 gains no performance benefit, same for arguments
     uint8_t mask_repr_pos = 15; // position of 2-bit tuple
@@ -110,14 +110,53 @@ __global__ void kernel_4pass_popc_iov_monolithic(
             }
         }
     }
-
     pss[tid] = popcount;
     iov[tid] = iovRow{tid, mask_repr};
 }
 
-__global__ void kernel_4pass_popc_iov_striding(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
+__global__ void kernel_4pass_popc_iov_striding(
+    uint8_t* mask,
+    uint32_t* pss,
+    iovRow* iov,
+    uint32_t chunk_length32,
+    uint32_t chunk_count,
+    uint8_t mask_repr_power,
+    uint8_t mask_repr_switch)
 {
-    //TODO update to new iov code
+    for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
+        uint32_t idx = chunk_length32 * tid; // index for 1st 32bit-element of this chunk
+        // assuming chunk_length to be multiple of 32
+        uint32_t popcount = 0;
+        uint32_t mask_repr = 0;
+        // splicing together these vars in one uint32 gains no performance benefit, same for arguments
+        uint8_t mask_repr_pos = 15; // position of 2-bit tuple
+        uint8_t byte_acc_count = mask_repr_power;
+        uint8_t byte_acc_ones = 0xFF;
+        uint8_t byte_acc_zero = 0x00;
+        for (int i = 0; i < chunk_length32; i++) {
+            //FIXME use 4 bytes of shared memory to keep this properly
+            // also maybe use more bytes and store entire chunk bytes in smem for processing
+            uint32_t mask_elem = reinterpret_cast<uint32_t*>(mask)[idx+i];
+            popcount += __popc(mask_elem);
+            for (int j = 3; j >= 0; j--) {
+                // little endian screws up everything here
+                uint8_t mask_byte = mask[idx+i+(3-j)]; // isn't cached, should use smem intermediate storage
+                byte_acc_ones &= mask_byte;
+                byte_acc_zero |= mask_byte;
+                byte_acc_count--;
+                if (byte_acc_count == 0) {
+                    // save acumulated byte stream stats to 2 bits in mask_repr at mask_repr_pos
+                    mask_repr |= ( ((byte_acc_ones == 0xFF)&0b1)<<1 | ((byte_acc_zero == 0x00)&0b1) )<<(mask_repr_pos*2);
+                    mask_repr_pos--;
+                    byte_acc_count = mask_repr_power>>((mask_repr_pos*2 + 1) < mask_repr_switch);
+                    byte_acc_ones = 0xFF;
+                    byte_acc_zero = 0x00;
+                }
+            }
+        }
+        pss[tid] = popcount;
+        iov[tid] = iovRow{tid, mask_repr};
+    }
 }
 
 float launch_4pass_popc_iov(
@@ -146,7 +185,7 @@ float launch_4pass_popc_iov(
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_iov_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
+            (kernel_4pass_popc_iov_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count, mask_repr_power, mask_repr_switch))
         );
     }
     return time;
