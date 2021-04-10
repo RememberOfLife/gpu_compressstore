@@ -17,7 +17,7 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
     CUDA_TRY(cudaMemcpy(h_buffer, d_buffer+offset, count*sizeof(T), cudaMemcpyDeviceToHost));
     for (int i = 0; i < count; i++) {
         std::bitset<sizeof(T)*8> bits(h_buffer[i]);
-        std::cout << bits << " - " << h_buffer[i] << "\n";
+        std::cout << bits << " - " << unsigned(h_buffer[i]) << "\n";
     }
     free(h_buffer);
 }
@@ -48,7 +48,7 @@ int main()
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
     uint32_t h_pss_total = 0;
     // #1: pop count per chunk and populate IOV
-    launch_4pass_popc(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
+    launch_4pass_popc_iov(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
     launch_4pass_pss_gmem(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
     /*cub launch as alternative*/

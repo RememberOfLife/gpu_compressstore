@@ -11,7 +11,7 @@ struct iovRow {
     uint32_t mask_repr;
 };
 
-__global__ void kernel_4pass_popc_monolithic(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
+__global__ void kernel_4pass_popc_simple_monolithic(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
 {
     uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; // thread index = chunk id
     if (tid >= chunk_count) {
@@ -27,7 +27,7 @@ __global__ void kernel_4pass_popc_monolithic(uint8_t* mask, uint32_t* pss, iovRo
     iov[tid] = iovRow{tid, popcount};
 }
 
-__global__ void kernel_4pass_popc_striding(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
+__global__ void kernel_4pass_popc_simple_striding(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
 {
     for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
         uint32_t idx = (chunk_length/32) * tid; // index for 1st 32bit-element of this chunk
@@ -41,7 +41,7 @@ __global__ void kernel_4pass_popc_striding(uint8_t* mask, uint32_t* pss, iovRow*
     }
 }
 
-float launch_4pass_popc(
+float launch_4pass_popc_simple(
     cudaEvent_t ce_start,
     cudaEvent_t ce_stop,
     uint32_t blockcount,
@@ -56,11 +56,97 @@ float launch_4pass_popc(
     if (blockcount == 0) {
         blockcount = (chunk_count/threadcount)+1;
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_monolithic<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count))
+            (kernel_4pass_popc_simple_monolithic<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count))
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count))
+            (kernel_4pass_popc_simple_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count))
+        );
+    }
+    return time;
+}
+
+__global__ void kernel_4pass_popc_iov_monolithic(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
+{
+    uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; // thread index = chunk id
+    if (tid >= chunk_count) {
+        return;
+    }
+    uint32_t idx = (chunk_length/32) * tid; // index for 1st 32bit-element of this chunk
+    // assuming chunk_length to be multiple of 32
+    uint32_t popcount = 0;
+
+    uint8_t mask_repr_bytes = chunk_length / 8; // number of bytes represented in the mask_repr
+    uint8_t mask_repr_power = 1; // bytes represented by every element before/at the switch (half this after the switch)
+    while(16*mask_repr_power < mask_repr_bytes) {
+        mask_repr_power <<= 1;
+    }
+    uint8_t mask_repr_switch = 32-((mask_repr_bytes-(16*(mask_repr_power>>1)))*2); // all bits <switch use power/2 instead
+
+    uint32_t mask_repr = 0;
+    uint8_t mask_repr_pos = 15; // position of 2-bit tuple
+    uint8_t byte_acc_count = mask_repr_power;
+    uint8_t byte_acc_ones = 0xFF;
+    uint8_t byte_acc_zero = 0x00;
+    for (int i = 0; i < chunk_length/32; i++) {
+        uint32_t mask_elem = reinterpret_cast<uint32_t*>(mask)[idx+i];
+        popcount += __popc(mask_elem);
+        for (int j = 3; j >= 0; j--) {
+            // little endian screws up everything here
+            uint8_t mask_byte = mask[idx+i+(3-j)]; // hope it's still cached, could use smem intermediate storage
+            byte_acc_ones &= mask_byte;
+            byte_acc_zero |= mask_byte;
+            byte_acc_count--;
+            if (byte_acc_count == 0) {
+                // save acumulated byte stream stats to 2 bits in mask_repr at mask_repr_pos
+                mask_repr |= ( ((byte_acc_ones == 0xFF)&0b1)<<1 | ((byte_acc_zero == 0x00)&0b1) )<<(mask_repr_pos*2);
+                mask_repr_pos--;
+                byte_acc_count = mask_repr_power>>((mask_repr_pos*2 + 1) < mask_repr_switch);
+                byte_acc_ones = 0xFF;
+                byte_acc_zero = 0x00;
+            }
+        }
+    }
+
+    pss[tid] = popcount;
+    iov[tid] = iovRow{tid, mask_repr};
+}
+
+__global__ void kernel_4pass_popc_iov_striding(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length, uint32_t chunk_count)
+{
+    //TODO update to new iov code
+    for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
+        uint32_t idx = (chunk_length/32) * tid; // index for 1st 32bit-element of this chunk
+        // assuming chunk_length to be multiple of 32
+        uint32_t popcount = 0;
+        for (int i = 0; i < chunk_length/32; i++) {
+            popcount += __popc(reinterpret_cast<uint32_t*>(mask)[idx+i]);
+        }
+        pss[tid] = popcount;
+        iov[tid] = iovRow{tid, popcount};
+    }
+}
+
+float launch_4pass_popc_iov(
+    cudaEvent_t ce_start,
+    cudaEvent_t ce_stop,
+    uint32_t blockcount,
+    uint32_t threadcount,
+    uint8_t* d_mask,
+    uint32_t* d_pss,
+    iovRow* d_iov,
+    uint32_t chunk_length,
+    uint32_t chunk_count)
+{
+    float time;
+    if (blockcount == 0) {
+        blockcount = (chunk_count/threadcount)+1;
+        CUDA_TIME(ce_start, ce_stop, 0, &time,
+            (kernel_4pass_popc_iov_monolithic<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count))
+        );
+    } else {
+        CUDA_TIME(ce_start, ce_stop, 0, &time,
+            (kernel_4pass_popc_iov_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length, chunk_count))
         );
     }
     return time;
