@@ -562,5 +562,138 @@ float launch_4pass_proc_simple(
     return time;
 }
 
+template <typename T, bool complete_pss>
+__global__ void kernel_4pass_proc_iov_monolithic(
+    T* input,
+    T* output,
+    uint8_t* mask,
+    uint32_t* pss,
+    iovRow* iov,
+    uint32_t chunk_length8,
+    uint32_t chunk_count,
+    uint32_t chunk_count_p2,
+    uint8_t mask_repr_power,
+    uint8_t mask_repr_switch)
+{
+    uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (tid >= chunk_count) {
+        return;
+    }
+    iovRow crow = iov[tid];
+    //TODO check if whole chunk is 0 and skip accordingly
+    uint32_t out_idx;
+    if (complete_pss) {
+        out_idx = pss[crow.chunk_id];
+    } else {
+        out_idx = d_4pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
+    }
+    uint32_t element_idx = crow.chunk_id*chunk_length8;
+    uint8_t mask_repr_pos = 15; // position of 2-bit tuple, start reading from the left
+    bool is_ones_stream = ((crow.mask_repr>>(mask_repr_pos*2))>>1)&0b1;
+    bool is_zero_stream = (crow.mask_repr>>(mask_repr_pos*2))&0b1;
+    uint8_t byte_acc_count = mask_repr_power; // number of bytes to process with current flags
+    for (uint32_t i = element_idx; i < element_idx+chunk_length8; i++) {
+        uint8_t acc;
+        if (is_ones_stream) {
+            acc = 0xFF; //TODO optimize ones skip
+        } else if (is_zero_stream) {
+            //acc = 0x00; //TODO zero skip could update i and continue into next tuple
+            i += byte_acc_count-1;
+            mask_repr_pos--;
+            is_ones_stream = ((crow.mask_repr>>(mask_repr_pos*2))>>1)&0b1;
+            is_zero_stream = (crow.mask_repr>>(mask_repr_pos*2))&0b1;
+            byte_acc_count = mask_repr_power>>((mask_repr_pos*2 + 1) < mask_repr_switch);
+            continue;
+        } else {
+            acc = mask[i];
+        }
+        for (int j = 7; j >= 0; j--) {
+            uint64_t idx = i*8 + (7-j);
+            bool v = 0b1 & (acc>>j);
+            if (v) {
+                output[out_idx++] = input[idx];
+            }
+        }
+        // update count and flags if neccessary
+        if ((--byte_acc_count) == 0) {
+            mask_repr_pos--;
+            is_ones_stream = ((crow.mask_repr>>(mask_repr_pos*2))>>1)&0b1;
+            is_zero_stream = (crow.mask_repr>>(mask_repr_pos*2))&0b1;
+            byte_acc_count = mask_repr_power>>((mask_repr_pos*2 + 1) < mask_repr_switch);  
+        }
+    }
+}
+
+template <typename T, bool complete_pss>
+__global__ void kernel_4pass_proc_iov_striding(
+    T* input,
+    T* output,
+    uint8_t* mask,
+    uint32_t* pss,
+    iovRow* iov,
+    uint32_t chunk_length8,
+    uint32_t chunk_count,
+    uint32_t chunk_count_p2,
+    uint8_t mask_repr_power,
+    uint8_t mask_repr_switch)
+{
+    for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
+        //TODO
+    }
+}
+
+// processing (for complete and partial pss) with byte-wise usage of the iov
+template <typename T>
+float launch_4pass_proc_iov(
+    cudaEvent_t ce_start,
+    cudaEvent_t ce_stop,
+    uint32_t blockcount,
+    uint32_t threadcount,
+    T* d_input,
+    T* d_output,
+    uint8_t* d_mask,
+    uint32_t* d_pss,
+    bool full_pss,
+    iovRow* d_iov,
+    uint32_t chunk_length,
+    uint32_t chunk_count)
+{
+    float time;
+    uint32_t chunk_count_p2 = 1;
+    while (chunk_count_p2 < chunk_count) {
+        chunk_count_p2 *= 2;
+    }
+    // mask repr power and switch calculation from popc_iov kernel
+    uint8_t mask_repr_bytes = chunk_length / 8; // number of bytes represented in the mask_repr
+    uint8_t mask_repr_power = 1; // bytes represented by every element before/at the switch (half this after the switch)
+    while(16*mask_repr_power < mask_repr_bytes) {
+        mask_repr_power <<= 1;
+    }
+    uint8_t mask_repr_switch = 32-((mask_repr_bytes-(16*(mask_repr_power>>1)))*2); // all bits <switch use power/2 instead
+    if (blockcount == 0) {
+        blockcount = (chunk_count/threadcount)+1;
+        if (full_pss) {
+            CUDA_TIME(ce_start, ce_stop, 0, &time,
+                (kernel_4pass_proc_iov_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0, mask_repr_power, mask_repr_switch))
+            );
+        } else {
+            CUDA_TIME(ce_start, ce_stop, 0, &time,
+                (kernel_4pass_proc_iov_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2, mask_repr_power, mask_repr_switch))
+            );
+        }
+    } else {
+        if (full_pss) {
+            CUDA_TIME(ce_start, ce_stop, 0, &time,
+                (kernel_4pass_proc_iov_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0, mask_repr_power, mask_repr_switch))
+            );
+        } else {
+            CUDA_TIME(ce_start, ce_stop, 0, &time,
+                (kernel_4pass_proc_iov_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2, mask_repr_power, mask_repr_switch))
+            );
+        }
+    }
+    return time;
+}
+
 
 #endif

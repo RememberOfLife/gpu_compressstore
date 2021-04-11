@@ -65,9 +65,8 @@ float launch_cub_pss(cudaEvent_t ce_start, cudaEvent_t ce_stop, uint32_t* d_pss,
         CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_pss, d_pss_tmp, chunk_count))
     );
     CUDA_TRY(cudaFree(d_temp_storage));
-    uint32_t* d_pss_die = d_pss;
-    d_pss = d_pss_tmp;
-    CUDA_TRY(cudaFree(d_pss_die));
+    CUDA_TRY(cudaMemcpy(d_pss, d_pss_tmp, chunk_count*sizeof(uint32_t), cudaMemcpyDeviceToDevice));
+    CUDA_TRY(cudaFree(d_pss_tmp));
     launch_4pass_pssskip(d_pss, d_pss_total, chunk_count);
     return time;
 }
