@@ -327,7 +327,7 @@ __global__ void kernel_4pass_proc_none_monolithic(
     T* output,
     uint8_t* mask,
     uint32_t* pss,
-    uint32_t chunk_length,
+    uint32_t chunk_length8,
     uint32_t chunk_count,
     uint32_t chunk_count_p2)
 {
@@ -341,8 +341,8 @@ __global__ void kernel_4pass_proc_none_monolithic(
     } else {
         out_idx = d_4pass_pproc_pssidx(tid, pss, chunk_count_p2);
     }
-    uint32_t element_idx = tid*chunk_length/8;
-    for (uint32_t i = element_idx; i < element_idx+chunk_length/8; i++) {
+    uint32_t element_idx = tid*chunk_length8;
+    for (uint32_t i = element_idx; i < element_idx+chunk_length8; i++) {
         uint8_t acc = mask[i];
         for (int j = 7; j >= 0; j--) {
             uint64_t idx = i*8 + (7-j);
@@ -360,7 +360,7 @@ __global__ void kernel_4pass_proc_none_striding(
     T* output,
     uint8_t* mask,
     uint32_t* pss,
-    uint32_t chunk_length,
+    uint32_t chunk_length8,
     uint32_t chunk_count,
     uint32_t chunk_count_p2)
 {
@@ -371,8 +371,8 @@ __global__ void kernel_4pass_proc_none_striding(
         } else {
             out_idx = d_4pass_pproc_pssidx(tid, pss, chunk_count_p2);
         }
-        uint32_t element_idx = tid*chunk_length/8;
-        for (uint32_t i = element_idx; i < element_idx+chunk_length/8; i++) {
+        uint32_t element_idx = tid*chunk_length8;
+        for (uint32_t i = element_idx; i < element_idx+chunk_length8; i++) {
             uint8_t acc = mask[i];
             for (int j = 7; j >= 0; j--) {
                 uint64_t idx = i*8 + (7-j);
@@ -409,25 +409,158 @@ float launch_4pass_proc_none(
         blockcount = (chunk_count/threadcount)+1;
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, 0))
+                (kernel_4pass_proc_none_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length/8, chunk_count, 0))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
+                (kernel_4pass_proc_none_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length/8, chunk_count, chunk_count_p2))
             );
         }
     } else {
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, 0))
+                (kernel_4pass_proc_none_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length/8, chunk_count, 0))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
+                (kernel_4pass_proc_none_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length/8, chunk_count, chunk_count_p2))
             );
         }
     }
     return time;
 }
+
+template <typename T, bool complete_pss>
+__global__ void kernel_4pass_proc_simple_monolithic(
+    T* input,
+    T* output,
+    uint8_t* mask,
+    uint32_t* pss,
+    iovRow* iov,
+    uint32_t chunk_length8,
+    uint32_t chunk_count,
+    uint32_t chunk_count_p2)
+{
+    uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (tid >= chunk_count) {
+        return;
+    }
+    iovRow crow = iov[tid];
+    uint32_t out_idx;
+    if (complete_pss) {
+        out_idx = pss[crow.chunk_id];
+    } else {
+        out_idx = d_4pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
+    }
+    uint32_t element_idx = crow.chunk_id*chunk_length8;
+    if (crow.mask_repr == 0) {
+        return;
+    }
+    if (crow.mask_repr == chunk_length8*8) {
+        for (uint32_t i = element_idx; i < element_idx+(chunk_length8*8); i++) {
+            output[out_idx++] = input[i];
+        }
+        return;
+    }
+    for (uint32_t i = element_idx; i < element_idx+chunk_length8; i++) {
+        uint8_t acc = mask[i];
+        for (int j = 7; j >= 0; j--) {
+            uint64_t idx = i*8 + (7-j);
+            bool v = 0b1 & (acc>>j);
+            if (v) {
+                output[out_idx++] = input[idx];
+            }
+        }
+    }
+}
+
+template <typename T, bool complete_pss>
+__global__ void kernel_4pass_proc_simple_striding(
+    T* input,
+    T* output,
+    uint8_t* mask,
+    uint32_t* pss,
+    iovRow* iov,
+    uint32_t chunk_length8,
+    uint32_t chunk_count,
+    uint32_t chunk_count_p2)
+{
+    for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
+        iovRow crow = iov[tid];
+        uint32_t out_idx;
+        if (complete_pss) {
+            out_idx = pss[crow.chunk_id];
+        } else {
+            out_idx = d_4pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
+        }
+        uint32_t element_idx = crow.chunk_id*chunk_length8;
+        if (crow.mask_repr == 0) {
+            continue;
+        }
+        if (crow.mask_repr == chunk_length8*8) {
+            for (uint32_t i = element_idx; i < element_idx+(chunk_length8*8); i++) {
+                output[out_idx++] = input[i];
+            }
+            continue;
+        }
+        for (uint32_t i = element_idx; i < element_idx+chunk_length8; i++) {
+            uint8_t acc = mask[i];
+            for (int j = 7; j >= 0; j--) {
+                uint64_t idx = i*8 + (7-j);
+                bool v = 0b1 & (acc>>j);
+                if (v) {
+                    output[out_idx++] = input[idx];
+                }
+            }
+        }
+    }
+}
+
+// processing (for complete and partial pss) with simple usage of the iov
+template <typename T>
+float launch_4pass_proc_simple(
+    cudaEvent_t ce_start,
+    cudaEvent_t ce_stop,
+    uint32_t blockcount,
+    uint32_t threadcount,
+    T* d_input,
+    T* d_output,
+    uint8_t* d_mask,
+    uint32_t* d_pss,
+    bool full_pss,
+    iovRow* d_iov,
+    uint32_t chunk_length,
+    uint32_t chunk_count)
+{
+    float time;
+    uint32_t chunk_count_p2 = 1;
+    while (chunk_count_p2 < chunk_count) {
+        chunk_count_p2 *= 2;
+    }
+    if (blockcount == 0) {
+        blockcount = (chunk_count/threadcount)+1;
+        if (full_pss) {
+            CUDA_TIME(ce_start, ce_stop, 0, &time,
+                (kernel_4pass_proc_simple_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0))
+            );
+        } else {
+            CUDA_TIME(ce_start, ce_stop, 0, &time,
+                (kernel_4pass_proc_simple_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2))
+            );
+        }
+    } else {
+        if (full_pss) {
+            CUDA_TIME(ce_start, ce_stop, 0, &time,
+                (kernel_4pass_proc_simple_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0))
+            );
+        } else {
+            CUDA_TIME(ce_start, ce_stop, 0, &time,
+                (kernel_4pass_proc_simple_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2))
+            );
+        }
+    }
+    return time;
+}
+
 
 #endif
