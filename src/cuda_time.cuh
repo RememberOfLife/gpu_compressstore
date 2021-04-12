@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include <cuda_try.cuh>
+#include "cuda_try.cuh"
 
 // macro for timing gpu operations
 #define CUDA_TIME(ce_start, ce_stop, stream, time, stmt)                       \

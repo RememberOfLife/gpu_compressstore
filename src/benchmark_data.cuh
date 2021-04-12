@@ -176,10 +176,11 @@ struct benchmark_data {
         if (count == 0) {
             count = count;
         }
-        int comp = std::memcmp(h_validation, h_output, count * sizeof(uint64_t));
-        if (comp != 0) {
-            fprintf(stderr, "validation failed!\n");
-            return false;
+        for (uint32_t i = 0; i < count; i++) {
+            if (h_validation[i] != h_output[i]) {
+                fprintf(stderr, "validation failed @ %d\n", i);
+                return false;
+            }
         }
         return true;
     }
