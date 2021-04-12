@@ -335,40 +335,60 @@ __global__ void kernel_4pass_proc_none_monolithic(
     //TODO
 }
 
+//FIXME
+// chunk_length != 32
+// blockDim.x != 32
+// elem_count % 1024 != 0
 template <typename T, bool complete_pss>
 __global__ void kernel_4pass_proc_none_striding(
     T* input,
     T* output,
     uint8_t* mask,
     uint32_t* pss,
-    uint32_t chunk_length8,
+    uint32_t chunk_length,
     uint32_t chunk_count,
     uint32_t chunk_count_p2)
 {
     __shared__ uint32_t smem[32];
     __shared__ uint32_t smem_out_idx;
-    uint32_t base_idx = blockIdx.x * blockDim.x * 32;
-    uint32_t stride = blockDim.x * gridDim.x * 32;
-    for (uint32_t tid = base_idx + threadIdx.x; tid < chunk_count*32; tid += stride) {
-        uint32_t out_idx;
-        if (threadIdx.x == 0) {
-            if (complete_pss) {
-                out_idx = pss[base_idx/32];
-            } else {
-                //TODO carry over from last stride instead of recomputing
-                out_idx = d_4pass_pproc_pssidx(base_idx/32, pss, chunk_count_p2);
-            }
-            smem_out_idx = out_idx;
+    uint32_t elem_count = chunk_length * chunk_count;
+    uint32_t grid_stride = chunk_length;
+    while (grid_stride % 1024 != 0 || grid_stride * gridDim.x < elem_count) {
+        grid_stride *= 2;
+    }
+    uint32_t base_idx = blockIdx.x*grid_stride;
+    if (base_idx > elem_count) {
+        return;
+    }
+    uint32_t stop_idx = base_idx+grid_stride;
+    if (stop_idx > elem_count) {
+        stop_idx = elem_count;
+    }
+    uint32_t stride = blockDim.x * 32; // 1024
+    if (threadIdx.x == 0) {
+        if (complete_pss) {
+            smem_out_idx = pss[base_idx/chunk_length];
+        } else {
+            smem_out_idx = d_4pass_pproc_pssidx(base_idx/chunk_length, pss, chunk_count_p2);
         }
-        uint32_t element_idx = tid*chunk_length8;
-        uchar4 ucx = *reinterpret_cast<uchar4*>(mask+base_idx/8+threadIdx.x*4);
-        uchar4 uix{ucx.w, ucx.z, ucx.y, ucx.x};
-        smem[threadIdx.x] = *reinterpret_cast<uint32_t*>(&uix);
+    }
+    for (uint32_t tid = base_idx + threadIdx.x; tid < stop_idx; tid += stride) {
+        uint32_t mask_idx = base_idx/8+threadIdx.x*4;
+        if (mask_idx < elem_count/8) {
+            uchar4 ucx = *reinterpret_cast<uchar4*>(mask+mask_idx);
+            uchar4 uix{ucx.w, ucx.z, ucx.y, ucx.x};
+            smem[threadIdx.x] = *reinterpret_cast<uint32_t*>(&uix);
+        } else {
+            smem[threadIdx.x] = 0;
+        }
         __syncwarp();
         for (int i = 0; i < 32; i++) {
             uint32_t s = smem[i];
             uint32_t out_idx_me = __popc(s>>(32-threadIdx.x));
             bool v = (s>>(31-threadIdx.x)) & 0b1;
+            // if (i >= 30 && tid < 1024) {
+            //     printf("%i %i %i %i %x %d %llu\n", i, threadIdx.x, v, smem_out_idx+out_idx_me, s, tid+(i*32), input[tid+(i*32)]);
+            // }
             if (v) {
                 output[smem_out_idx+out_idx_me] = input[tid+(i*32)];
             }
@@ -405,21 +425,21 @@ float launch_4pass_proc_none(
         blockcount = (chunk_count/threadcount)+1;
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length/8, chunk_count, 0))
+                (kernel_4pass_proc_none_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, 0))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length/8, chunk_count, chunk_count_p2))
+                (kernel_4pass_proc_none_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
             );
         }
     } else {
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length/8, chunk_count, 0))
+                (kernel_4pass_proc_none_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, 0))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length/8, chunk_count, chunk_count_p2))
+                (kernel_4pass_proc_none_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
             );
         }
     }
