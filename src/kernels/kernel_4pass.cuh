@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <stdio.h> // debugging
 
 #include "cuda_time.cuh"
 
@@ -331,27 +332,7 @@ __global__ void kernel_4pass_proc_none_monolithic(
     uint32_t chunk_count,
     uint32_t chunk_count_p2)
 {
-    uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if (tid >= chunk_count) {
-        return;
-    }
-    uint32_t out_idx;
-    if (complete_pss) {
-        out_idx = pss[tid];
-    } else {
-        out_idx = d_4pass_pproc_pssidx(tid, pss, chunk_count_p2);
-    }
-    uint32_t element_idx = tid*chunk_length8;
-    for (uint32_t i = element_idx; i < element_idx+chunk_length8; i++) {
-        uint8_t acc = mask[i];
-        for (int j = 7; j >= 0; j--) {
-            uint64_t idx = i*8 + (7-j);
-            bool v = 0b1 & (acc>>j);
-            if (v) {
-                output[out_idx++] = input[idx];
-            }
-        }
-    }
+    //TODO
 }
 
 template <typename T, bool complete_pss>
@@ -364,24 +345,39 @@ __global__ void kernel_4pass_proc_none_striding(
     uint32_t chunk_count,
     uint32_t chunk_count_p2)
 {
-    for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
+    __shared__ uint32_t smem[32];
+    __shared__ uint32_t smem_out_idx;
+    uint32_t base_idx = blockIdx.x * blockDim.x * 32;
+    uint32_t stride = blockDim.x * gridDim.x * 32;
+    for (uint32_t tid = base_idx + threadIdx.x; tid < chunk_count*32; tid += stride) {
         uint32_t out_idx;
-        if (complete_pss) {
-            out_idx = pss[tid];
-        } else {
-            out_idx = d_4pass_pproc_pssidx(tid, pss, chunk_count_p2);
+        if (threadIdx.x == 0) {
+            if (complete_pss) {
+                out_idx = pss[base_idx/32];
+            } else {
+                //TODO carry over from last stride instead of recomputing
+                out_idx = d_4pass_pproc_pssidx(base_idx/32, pss, chunk_count_p2);
+            }
+            smem_out_idx = out_idx;
         }
         uint32_t element_idx = tid*chunk_length8;
-        for (uint32_t i = element_idx; i < element_idx+chunk_length8; i++) {
-            uint8_t acc = mask[i];
-            for (int j = 7; j >= 0; j--) {
-                uint64_t idx = i*8 + (7-j);
-                bool v = 0b1 & (acc>>j);
-                if (v) {
-                    output[out_idx++] = input[idx];
-                }
+        uchar4 ucx = *reinterpret_cast<uchar4*>(mask+base_idx/8+threadIdx.x*4);
+        uchar4 uix{ucx.w, ucx.z, ucx.y, ucx.x};
+        smem[threadIdx.x] = *reinterpret_cast<uint32_t*>(&uix);
+        __syncwarp();
+        for (int i = 0; i < 32; i++) {
+            uint32_t s = smem[i];
+            uint32_t out_idx_me = __popc(s>>(32-threadIdx.x));
+            bool v = (s>>(31-threadIdx.x)) & 0b1;
+            if (v) {
+                output[smem_out_idx+out_idx_me] = input[tid+(i*32)];
             }
+            if (threadIdx.x == 31) {
+                smem_out_idx += out_idx_me+v;
+            }
+            __syncwarp();
         }
+        base_idx += stride;
     }
 }
 
