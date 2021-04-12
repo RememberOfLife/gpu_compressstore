@@ -7,6 +7,8 @@
 
 #include "cuda_time.cuh"
 
+#define CUDA_WARP_SIZE 32
+
 struct iovRow {
     uint32_t chunk_id;
     uint32_t mask_repr;
@@ -339,7 +341,7 @@ __global__ void kernel_4pass_proc_none_monolithic(
 // chunk_length != 32
 // blockDim.x != 32
 // elem_count % 1024 != 0
-template <typename T, bool complete_pss>
+template <uint32_t BLOCK_DIM, typename T, bool complete_pss>
 __global__ void kernel_4pass_proc_none_striding(
     T* input,
     T* output,
@@ -349,11 +351,12 @@ __global__ void kernel_4pass_proc_none_striding(
     uint32_t chunk_count,
     uint32_t chunk_count_p2)
 {
-    __shared__ uint32_t smem[32];
+    constexpr uint32_t WARPS_PER_BLOCK = BLOCK_DIM / CUDA_WARP_SIZE;
+    __shared__ uint32_t smem[BLOCK_DIM];
     __shared__ uint32_t smem_out_idx;
     uint32_t elem_count = chunk_length * chunk_count;
     uint32_t grid_stride = chunk_length;
-    while (grid_stride % 1024 != 0 || grid_stride * gridDim.x < elem_count) {
+    while (grid_stride % (CUDA_WARP_SIZE * BLOCK_DIM) != 0 || grid_stride * gridDim.x < elem_count) {
         grid_stride *= 2;
     }
     uint32_t base_idx = blockIdx.x*grid_stride;
@@ -364,7 +367,8 @@ __global__ void kernel_4pass_proc_none_striding(
     if (stop_idx > elem_count) {
         stop_idx = elem_count;
     }
-    uint32_t stride = blockDim.x * 32; // 1024
+    uint32_t warp_offset = threadIdx.x % CUDA_WARP_SIZE;
+    uint32_t stride = BLOCK_DIM * 32; // 1024
     if (threadIdx.x == 0) {
         if (complete_pss) {
             smem_out_idx = pss[base_idx/chunk_length];
@@ -382,17 +386,17 @@ __global__ void kernel_4pass_proc_none_striding(
             smem[threadIdx.x] = 0;
         }
         __syncwarp();
-        for (int i = 0; i < 32; i++) {
+        for (int i = 0; i < CUDA_WARP_SIZE; i++) {
             uint32_t s = smem[i];
-            uint32_t out_idx_me = __popc(s>>(32-threadIdx.x));
-            bool v = (s>>(31-threadIdx.x)) & 0b1;
+            uint32_t out_idx_me = __popc(s>>(CUDA_WARP_SIZE-warp_offset));
+            bool v = (s>>((CUDA_WARP_SIZE-1)-warp_offset)) & 0b1;
             // if (i >= 30 && tid < 1024) {
             //     printf("%i %i %i %i %x %d %llu\n", i, threadIdx.x, v, smem_out_idx+out_idx_me, s, tid+(i*32), input[tid+(i*32)]);
             // }
             if (v) {
-                output[smem_out_idx+out_idx_me] = input[tid+(i*32)];
+                output[smem_out_idx+out_idx_me] = input[tid+(i*CUDA_WARP_SIZE)];
             }
-            if (threadIdx.x == 31) {
+            if (warp_offset == (CUDA_WARP_SIZE-1)) {
                 smem_out_idx += out_idx_me+v;
             }
             __syncwarp();
@@ -435,11 +439,11 @@ float launch_4pass_proc_none(
     } else {
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, 0))
+                (kernel_4pass_proc_none_striding<32, T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, 0))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_none_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
+                (kernel_4pass_proc_none_striding<32, T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
             );
         }
     }
