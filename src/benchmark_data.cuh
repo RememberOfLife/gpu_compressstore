@@ -178,7 +178,12 @@ struct benchmark_data {
         }
         for (uint32_t i = 0; i < count; i++) {
             if (h_validation[i] != h_output[i]) {
-                fprintf(stderr, "validation failed @ %d\n", i);
+                for (uint32_t j = 0; j < count; j++) {
+                    if (h_input[j] == h_validation[i]) {
+                        fprintf(stderr, "validation failed (got %llu @ %d, expected %llu from %d)\n", h_output[i], i, h_validation[i], j);
+                        break;
+                    }
+                }
                 return false;
             }
         }
