@@ -456,7 +456,7 @@ float launch_4pass_proc_true(
         chunk_count_p2 *= 2;
     }
     if (blockcount == 0) {
-        blockcount = (chunk_count/threadcount)+1;
+        blockcount = chunk_count/threadcount;
     }
     if (full_pss) {
         CUDA_TIME(ce_start, ce_stop, 0, &time,

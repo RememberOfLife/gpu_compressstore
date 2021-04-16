@@ -18,7 +18,6 @@ enum MaskType {
 
 template <typename T>
 struct benchmark_data {
-    bool validation;
     uint64_t count; // elems
     T* h_input;
     uint8_t* h_mask;
@@ -30,8 +29,7 @@ struct benchmark_data {
     cudaEvent_t ce_start;
     cudaEvent_t ce_stop;
 
-    benchmark_data(bool validation, uint64_t count):
-        validation(validation),
+    benchmark_data(uint64_t count):
         count(count)
     {
         //TODO force byte_size to multiple of 32bit and element count to multiple of 8; fill with 0s at end
@@ -54,6 +52,8 @@ struct benchmark_data {
         }
         // copy input to device
         CUDA_TRY(cudaMemcpy(d_input, h_input, byte_size_data, cudaMemcpyHostToDevice));
+        // clear device output
+        CUDA_TRY(cudaMemset(d_output, 0x00, byte_size_data));
     }
 
     ~benchmark_data()
@@ -69,7 +69,7 @@ struct benchmark_data {
         CUDA_TRY(cudaFreeHost(h_input));
     }
 
-    void generate_mask(MaskType mtype, double marg)
+    uint32_t generate_mask(MaskType mtype, double marg)
     {
         fast_prng rng(42);
         switch (mtype)
@@ -151,9 +151,6 @@ struct benchmark_data {
         // copy mask to device
         CUDA_TRY(cudaMemcpy(d_mask, h_mask, count / 8, cudaMemcpyHostToDevice));
         // generate validation
-        if (!validation) {
-            return;
-        }
         uint32_t onecount = 0;
         uint64_t val_idx = 0;
         for (int i = 0; i < count/8; i++) {
@@ -167,8 +164,8 @@ struct benchmark_data {
                 }
             }
         }
-        std::cout << "onecount: " << onecount << "\n";
         memset(&(h_validation[val_idx]), 0x00, (count-val_idx)*sizeof(T)); // set rest of validation space to 0x00
+        return onecount;
     }
 
     bool validate(uint64_t count)
