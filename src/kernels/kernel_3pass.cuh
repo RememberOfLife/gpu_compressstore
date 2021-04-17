@@ -1,5 +1,5 @@
-#ifndef KERNEL_4PASS_CUH
-#define KERNEL_4PASS_CUH
+#ifndef KERNEL_3PASS_CUH
+#define KERNEL_3PASS_CUH
 
 #include <cmath>
 #include <cstdint>
@@ -15,7 +15,7 @@ struct iovRow {
 };
 
 template <bool write_iov>
-__global__ void kernel_4pass_popc_simple_monolithic(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length32, uint32_t chunk_count)
+__global__ void kernel_3pass_popc_simple_monolithic(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length32, uint32_t chunk_count)
 {
     uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; // thread index = chunk id
     if (tid >= chunk_count) {
@@ -34,7 +34,7 @@ __global__ void kernel_4pass_popc_simple_monolithic(uint8_t* mask, uint32_t* pss
 }
 
 template <bool write_iov>
-__global__ void kernel_4pass_popc_simple_striding(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length32, uint32_t chunk_count)
+__global__ void kernel_3pass_popc_simple_striding(uint8_t* mask, uint32_t* pss, iovRow* iov, uint32_t chunk_length32, uint32_t chunk_count)
 {
     for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
         uint32_t idx = chunk_length32 * tid; // index for 1st 32bit-element of this chunk
@@ -50,7 +50,7 @@ __global__ void kernel_4pass_popc_simple_striding(uint8_t* mask, uint32_t* pss, 
     }
 }
 
-float launch_4pass_popc_none(
+float launch_3pass_popc_none(
     cudaEvent_t ce_start,
     cudaEvent_t ce_stop,
     uint32_t blockcount,
@@ -66,17 +66,17 @@ float launch_4pass_popc_none(
     if (blockcount == 0) {
         blockcount = (chunk_count/threadcount)+1;
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_simple_monolithic<false><<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
+            (kernel_3pass_popc_simple_monolithic<false><<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_simple_striding<false><<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
+            (kernel_3pass_popc_simple_striding<false><<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
         );
     }
     return time;
 }
 
-float launch_4pass_popc_simple(
+float launch_3pass_popc_simple(
     cudaEvent_t ce_start,
     cudaEvent_t ce_stop,
     uint32_t blockcount,
@@ -92,17 +92,17 @@ float launch_4pass_popc_simple(
     if (blockcount == 0) {
         blockcount = (chunk_count/threadcount)+1;
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_simple_monolithic<true><<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
+            (kernel_3pass_popc_simple_monolithic<true><<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_simple_striding<true><<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
+            (kernel_3pass_popc_simple_striding<true><<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count))
         );
     }
     return time;
 }
 
-#define KERNEL_4PASS_POPC_IOV_PROCBYTE(byte)                                                                      \
+#define KERNEL_3PASS_POPC_IOV_PROCBYTE(byte)                                                                      \
     mask_byte = static_cast<uint8_t>(byte);                                                                       \
     popcount += __popc(mask_byte);                                                                                \
     byte_acc_ones &= mask_byte;                                                                                   \
@@ -116,7 +116,7 @@ float launch_4pass_popc_simple(
         byte_acc_zero = 0x00;                                                                                     \
     }
 
-__global__ void kernel_4pass_popc_iov_monolithic(
+__global__ void kernel_3pass_popc_iov_monolithic(
     uint8_t* mask,
     uint32_t* pss,
     iovRow* iov,
@@ -141,16 +141,16 @@ __global__ void kernel_4pass_popc_iov_monolithic(
     for (int i = 0; i < chunk_length32; i++) {
         uchar4 mask_elem = reinterpret_cast<uchar4*>(mask)[idx+i];
         uint8_t mask_byte;
-        KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.x);
-        KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.y);
-        KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.z);
-        KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.w);
+        KERNEL_3PASS_POPC_IOV_PROCBYTE(mask_elem.x);
+        KERNEL_3PASS_POPC_IOV_PROCBYTE(mask_elem.y);
+        KERNEL_3PASS_POPC_IOV_PROCBYTE(mask_elem.z);
+        KERNEL_3PASS_POPC_IOV_PROCBYTE(mask_elem.w);
     }
     pss[tid] = popcount;
     iov[tid] = iovRow{tid, mask_repr};
 }
 
-__global__ void kernel_4pass_popc_iov_striding(
+__global__ void kernel_3pass_popc_iov_striding(
     uint8_t* mask,
     uint32_t* pss,
     iovRow* iov,
@@ -172,17 +172,17 @@ __global__ void kernel_4pass_popc_iov_striding(
         for (int i = 0; i < chunk_length32; i++) {
             uchar4 mask_elem = reinterpret_cast<uchar4*>(mask)[idx+i];
             uint8_t mask_byte;
-            KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.x);
-            KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.y);
-            KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.z);
-            KERNEL_4PASS_POPC_IOV_PROCBYTE(mask_elem.w);
+            KERNEL_3PASS_POPC_IOV_PROCBYTE(mask_elem.x);
+            KERNEL_3PASS_POPC_IOV_PROCBYTE(mask_elem.y);
+            KERNEL_3PASS_POPC_IOV_PROCBYTE(mask_elem.z);
+            KERNEL_3PASS_POPC_IOV_PROCBYTE(mask_elem.w);
         }
         pss[tid] = popcount;
         iov[tid] = iovRow{tid, mask_repr};
     }
 }
 
-float launch_4pass_popc_iov(
+float launch_3pass_popc_iov(
     cudaEvent_t ce_start,
     cudaEvent_t ce_stop,
     uint32_t blockcount,
@@ -204,26 +204,26 @@ float launch_4pass_popc_iov(
     if (blockcount == 0) {
         blockcount = (chunk_count/threadcount)+1;
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_iov_monolithic<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count, mask_repr_power, mask_repr_switch))
+            (kernel_3pass_popc_iov_monolithic<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count, mask_repr_power, mask_repr_switch))
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (kernel_4pass_popc_iov_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count, mask_repr_power, mask_repr_switch))
+            (kernel_3pass_popc_iov_striding<<<blockcount, threadcount>>>(d_mask, d_pss, d_iov, chunk_length32, chunk_count, mask_repr_power, mask_repr_switch))
         );
     }
     return time;
 }
 
-__global__ void kernel_4pass_pssskip(uint32_t* pss, uint32_t* pss_total, uint32_t chunk_count)
+__global__ void kernel_3pass_pssskip(uint32_t* pss, uint32_t* pss_total, uint32_t chunk_count)
 {
     *pss_total += pss[chunk_count-1];
 }
-void launch_4pass_pssskip(uint32_t* d_pss, uint32_t* d_pss_total, uint32_t chunk_count)
+void launch_3pass_pssskip(uint32_t* d_pss, uint32_t* d_pss_total, uint32_t chunk_count)
 {
-    kernel_4pass_pssskip<<<1,1>>>(d_pss, d_pss_total, chunk_count);
+    kernel_3pass_pssskip<<<1,1>>>(d_pss, d_pss_total, chunk_count);
 }
 
-__global__ void kernel_4pass_pss_gmem_monolithic(uint32_t* pss, uint8_t depth, uint32_t chunk_count, uint32_t* out_count)
+__global__ void kernel_3pass_pss_gmem_monolithic(uint32_t* pss, uint8_t depth, uint32_t chunk_count, uint32_t* out_count)
 {
     uint64_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
     uint64_t stride = (1<<depth);
@@ -242,7 +242,7 @@ __global__ void kernel_4pass_pss_gmem_monolithic(uint32_t* pss, uint8_t depth, u
     }
 }
 
-__global__ void kernel_4pass_pss_gmem_striding(uint32_t* pss, uint8_t depth, uint32_t chunk_count, uint32_t* out_count)
+__global__ void kernel_3pass_pss_gmem_striding(uint32_t* pss, uint8_t depth, uint32_t chunk_count, uint32_t* out_count)
 {
     uint64_t stride = (1<<depth);
     for (uint64_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
@@ -259,7 +259,7 @@ __global__ void kernel_4pass_pss_gmem_striding(uint32_t* pss, uint8_t depth, uin
     }
 }
 
-float launch_4pass_pss_gmem(
+float launch_3pass_pss_gmem(
     cudaEvent_t ce_start,
     cudaEvent_t ce_stop,
     uint32_t blockcount,
@@ -279,13 +279,13 @@ float launch_4pass_pss_gmem(
         for (int i = 0; i < max_depth; i++) {
             blockcount = ((chunk_count>>i)/(threadcount*2))+1;
             CUDA_TIME(ce_start, ce_stop, 0, &ptime,
-                (kernel_4pass_pss_gmem_monolithic<<<blockcount, threadcount>>>(d_pss, i, chunk_count, d_out_count))
+                (kernel_3pass_pss_gmem_monolithic<<<blockcount, threadcount>>>(d_pss, i, chunk_count, d_out_count))
             );
             time += ptime;
         }
         // last pass forces result into d_out_count
         CUDA_TIME(ce_start, ce_stop, 0, &ptime, 
-            (kernel_4pass_pss_gmem_monolithic<<<1, 1>>>(d_pss, static_cast<uint8_t>(max_depth), chunk_count, d_out_count))
+            (kernel_3pass_pss_gmem_monolithic<<<1, 1>>>(d_pss, static_cast<uint8_t>(max_depth), chunk_count, d_out_count))
         );
         time += ptime;
     } else {
@@ -295,20 +295,20 @@ float launch_4pass_pss_gmem(
                 blockcount = req_blockcount;
             }
             CUDA_TIME(ce_start, ce_stop, 0, &ptime,
-                (kernel_4pass_pss_gmem_striding<<<blockcount, threadcount>>>(d_pss, i, chunk_count, d_out_count))
+                (kernel_3pass_pss_gmem_striding<<<blockcount, threadcount>>>(d_pss, i, chunk_count, d_out_count))
             );
             time += ptime;
         }
         // last pass forces result into d_out_count
         CUDA_TIME(ce_start, ce_stop, 0, &ptime,
-            (kernel_4pass_pss_gmem_monolithic<<<1, 1>>>(d_pss, static_cast<uint8_t>(max_depth), chunk_count, d_out_count))
+            (kernel_3pass_pss_gmem_monolithic<<<1, 1>>>(d_pss, static_cast<uint8_t>(max_depth), chunk_count, d_out_count))
         );
         time += ptime;
     }
     return time;
 }
 
-__device__ uint32_t d_4pass_pproc_pssidx(uint32_t thread_idx, uint32_t* pss, uint32_t chunk_count_p2)
+__device__ uint32_t d_3pass_pproc_pssidx(uint32_t thread_idx, uint32_t* pss, uint32_t chunk_count_p2)
 {
     chunk_count_p2 /= 2; // start by trying the subtree with length of half the next rounded up power of 2 of chunk_count
     uint32_t consumed = 0; // length of subtrees already fit inside idx_acc
@@ -325,7 +325,7 @@ __device__ uint32_t d_4pass_pproc_pssidx(uint32_t thread_idx, uint32_t* pss, uin
 }
 
 template <uint32_t BLOCK_DIM, typename T, bool complete_pss>
-__global__ void kernel_4pass_proc_true_striding(
+__global__ void kernel_3pass_proc_true_striding(
     T* input,
     T* output,
     uint8_t* mask,
@@ -365,7 +365,7 @@ __global__ void kernel_4pass_proc_true_striding(
         if (complete_pss) {
             smem_out_idx[warp_index] = pss[base_idx/chunk_length];
         } else {
-            smem_out_idx[warp_index] = d_4pass_pproc_pssidx(base_idx/chunk_length, pss, chunk_count_p2);
+            smem_out_idx[warp_index] = d_3pass_pproc_pssidx(base_idx/chunk_length, pss, chunk_count_p2);
         }
     }
     for (uint32_t tid = base_idx + warp_offset; tid < stop_idx; tid += stride) {
@@ -395,7 +395,7 @@ __global__ void kernel_4pass_proc_true_striding(
 }
 
 template <typename T, bool complete_pss>
-void switch_4pass_proc_true_striding(
+void switch_3pass_proc_true_striding(
     uint32_t block_count,
     uint32_t block_dim,
     T* input,
@@ -409,27 +409,27 @@ void switch_4pass_proc_true_striding(
     switch (block_dim) {
         default:
         case 32: {
-                kernel_4pass_proc_true_striding<32, T, complete_pss><<<block_count, 32>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<32, T, complete_pss><<<block_count, 32>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 64: {
-                kernel_4pass_proc_true_striding<64, T, complete_pss><<<block_count, 64>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<64, T, complete_pss><<<block_count, 64>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 128: {
-                kernel_4pass_proc_true_striding<128, T, complete_pss><<<block_count, 128>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<128, T, complete_pss><<<block_count, 128>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 256: {
-                kernel_4pass_proc_true_striding<256, T, complete_pss><<<block_count, 256>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<256, T, complete_pss><<<block_count, 256>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 512: {
-                kernel_4pass_proc_true_striding<512, T, complete_pss><<<block_count, 512>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<512, T, complete_pss><<<block_count, 512>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 1024: {
-                kernel_4pass_proc_true_striding<1024, T, complete_pss><<<block_count, 1024>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<1024, T, complete_pss><<<block_count, 1024>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
     }
@@ -437,7 +437,7 @@ void switch_4pass_proc_true_striding(
 
 // processing (for complete and partial pss) using optimized memory access pattern
 template <typename T>
-float launch_4pass_proc_true(
+float launch_3pass_proc_true(
     cudaEvent_t ce_start,
     cudaEvent_t ce_stop,
     uint32_t blockcount,
@@ -460,18 +460,18 @@ float launch_4pass_proc_true(
     }
     if (full_pss) {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (switch_4pass_proc_true_striding<T, true>(blockcount, threadcount, d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
+            (switch_3pass_proc_true_striding<T, true>(blockcount, threadcount, d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (switch_4pass_proc_true_striding<T, false>(blockcount, threadcount, d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
+            (switch_3pass_proc_true_striding<T, false>(blockcount, threadcount, d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
         );
     }
     return time;
 }
 
 template <typename T, bool complete_pss>
-__global__ void kernel_4pass_proc_simple_monolithic(
+__global__ void kernel_3pass_proc_simple_monolithic(
     T* input,
     T* output,
     uint8_t* mask,
@@ -490,7 +490,7 @@ __global__ void kernel_4pass_proc_simple_monolithic(
     if (complete_pss) {
         out_idx = pss[crow.chunk_id];
     } else {
-        out_idx = d_4pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
+        out_idx = d_3pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
     }
     uint32_t element_idx = crow.chunk_id*chunk_length8;
     if (crow.mask_repr == 0) {
@@ -515,7 +515,7 @@ __global__ void kernel_4pass_proc_simple_monolithic(
 }
 
 template <typename T, bool complete_pss>
-__global__ void kernel_4pass_proc_simple_striding(
+__global__ void kernel_3pass_proc_simple_striding(
     T* input,
     T* output,
     uint8_t* mask,
@@ -531,7 +531,7 @@ __global__ void kernel_4pass_proc_simple_striding(
         if (complete_pss) {
             out_idx = pss[crow.chunk_id];
         } else {
-            out_idx = d_4pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
+            out_idx = d_3pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
         }
         uint32_t element_idx = crow.chunk_id*chunk_length8;
         if (crow.mask_repr == 0) {
@@ -558,7 +558,7 @@ __global__ void kernel_4pass_proc_simple_striding(
 
 // processing (for complete and partial pss) with simple usage of the iov
 template <typename T>
-float launch_4pass_proc_simple(
+float launch_3pass_proc_simple(
     cudaEvent_t ce_start,
     cudaEvent_t ce_stop,
     uint32_t blockcount,
@@ -581,21 +581,21 @@ float launch_4pass_proc_simple(
         blockcount = (chunk_count/threadcount)+1;
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_simple_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0))
+                (kernel_3pass_proc_simple_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_simple_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2))
+                (kernel_3pass_proc_simple_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2))
             );
         }
     } else {
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_simple_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0))
+                (kernel_3pass_proc_simple_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_simple_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2))
+                (kernel_3pass_proc_simple_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2))
             );
         }
     }
@@ -603,7 +603,7 @@ float launch_4pass_proc_simple(
 }
 
 template <typename T, bool complete_pss>
-__global__ void kernel_4pass_proc_iov_monolithic(
+__global__ void kernel_3pass_proc_iov_monolithic(
     T* input,
     T* output,
     uint8_t* mask,
@@ -625,7 +625,7 @@ __global__ void kernel_4pass_proc_iov_monolithic(
     if (complete_pss) {
         out_idx = pss[crow.chunk_id];
     } else {
-        out_idx = d_4pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
+        out_idx = d_3pass_pproc_pssidx(crow.chunk_id, pss, chunk_count_p2);
     }
     uint32_t element_idx = crow.chunk_id*chunk_length8;
     uint8_t mask_repr_pos = 15; // position of 2-bit tuple, start reading from the left
@@ -665,7 +665,7 @@ __global__ void kernel_4pass_proc_iov_monolithic(
 }
 
 template <typename T, bool complete_pss>
-__global__ void kernel_4pass_proc_iov_striding(
+__global__ void kernel_3pass_proc_iov_striding(
     T* input,
     T* output,
     uint8_t* mask,
@@ -684,7 +684,7 @@ __global__ void kernel_4pass_proc_iov_striding(
 
 // processing (for complete and partial pss) with byte-wise usage of the iov
 template <typename T>
-float launch_4pass_proc_iov(
+float launch_3pass_proc_iov(
     cudaEvent_t ce_start,
     cudaEvent_t ce_stop,
     uint32_t blockcount,
@@ -714,21 +714,21 @@ float launch_4pass_proc_iov(
         blockcount = (chunk_count/threadcount)+1;
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_iov_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0, mask_repr_power, mask_repr_switch))
+                (kernel_3pass_proc_iov_monolithic<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0, mask_repr_power, mask_repr_switch))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_iov_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2, mask_repr_power, mask_repr_switch))
+                (kernel_3pass_proc_iov_monolithic<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2, mask_repr_power, mask_repr_switch))
             );
         }
     } else {
         if (full_pss) {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_iov_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0, mask_repr_power, mask_repr_switch))
+                (kernel_3pass_proc_iov_striding<T, true><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, 0, mask_repr_power, mask_repr_switch))
             );
         } else {
             CUDA_TIME(ce_start, ce_stop, 0, &time,
-                (kernel_4pass_proc_iov_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2, mask_repr_power, mask_repr_switch))
+                (kernel_3pass_proc_iov_striding<T, false><<<blockcount, threadcount>>>(d_input, d_output, d_mask, d_pss, d_iov, chunk_length/8, chunk_count, chunk_count_p2, mask_repr_power, mask_repr_switch))
             );
         }
     }

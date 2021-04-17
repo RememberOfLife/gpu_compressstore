@@ -8,7 +8,7 @@
 #include "benchmark_experiment.cuh"
 #include "cub_wraps.cuh"
 #include "cuda_try.cuh"
-#include "kernels/kernel_4pass.cuh"
+#include "kernels/kernel_3pass.cuh"
 #include "kernels/kernel_singlethread.cuh"
 
 template <typename T>
@@ -29,9 +29,9 @@ int main()
     benchmark_data<uint64_t> bdata(1<<29); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
     std::cout << "onecount: " << bdata.generate_mask(MASKTYPE_UNIFORM, 0.5) << "\n";
 
-    //run_benchmark_experiment(&bdata);
-    //std::cout << "done\n";
-    //return 0;
+    run_benchmark_experiment(&bdata);
+    std::cout << "done\n";
+    return 0;
 
     // 3 pass algo
     uint32_t chunk_length = 128;
@@ -52,9 +52,9 @@ int main()
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
     uint32_t h_pss_total = 0;
     // #1: pop count per chunk and populate IOV
-    launch_4pass_popc_iov(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
+    launch_3pass_popc_iov(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
-    launch_4pass_pss_gmem(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
+    launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
     //launch_cub_pss(bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count); // cub launch as alternative
     CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost)); // copy total popcount to host
     double mask_dp = static_cast<double>(h_pss_total) / static_cast<double>(bdata.count); // distribution parameter (assuming uniform distribution)
@@ -63,11 +63,11 @@ int main()
     int c = 20;
     float t;
     for (int i = 0; i < 3; i++) {
-        launch_4pass_proc_iov(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, d_iov, chunk_length, chunk_count);
+        launch_3pass_proc_iov(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, d_iov, chunk_length, chunk_count);
     }
     t = 0;
     for (int i = 0; i < c; i++) {
-        t += launch_4pass_proc_iov(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, d_iov, chunk_length, chunk_count);
+        t += launch_3pass_proc_iov(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, d_iov, chunk_length, chunk_count);
     }
     std::cout << "timing iov: " << t/c << "\n";
 

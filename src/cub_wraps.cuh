@@ -6,7 +6,7 @@
 
 #include "cuda_time.cuh"
 #include "cuda_try.cuh"
-#include "kernels/kernel_4pass.cuh"
+#include "kernels/kernel_3pass.cuh"
 
 struct bitstream_iterator {
     uint8_t* bytepointer;
@@ -52,7 +52,7 @@ template <> struct std::iterator_traits <bitstream_iterator> {
 float launch_cub_pss(cudaEvent_t ce_start, cudaEvent_t ce_stop, uint32_t* d_pss, uint32_t* d_pss_total, uint32_t chunk_count)
 {
     // use cub pss for now
-    launch_4pass_pssskip(d_pss, d_pss_total, chunk_count);
+    launch_3pass_pssskip(d_pss, d_pss_total, chunk_count);
     uint32_t* d_pss_tmp;
     CUDA_TRY(cudaMalloc(&d_pss_tmp, chunk_count*sizeof(uint32_t)));
     void* d_temp_storage = NULL;
@@ -67,7 +67,7 @@ float launch_cub_pss(cudaEvent_t ce_start, cudaEvent_t ce_stop, uint32_t* d_pss,
     CUDA_TRY(cudaFree(d_temp_storage));
     CUDA_TRY(cudaMemcpy(d_pss, d_pss_tmp, chunk_count*sizeof(uint32_t), cudaMemcpyDeviceToDevice));
     CUDA_TRY(cudaFree(d_pss_tmp));
-    launch_4pass_pssskip(d_pss, d_pss_total, chunk_count);
+    launch_3pass_pssskip(d_pss, d_pss_total, chunk_count);
     return time;
 }
 

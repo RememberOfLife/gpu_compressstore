@@ -8,7 +8,7 @@
 #include "benchmark_data.cuh"
 #include "cub_wraps.cuh"
 #include "cuda_try.cuh"
-#include "kernels/kernel_4pass.cuh"
+#include "kernels/kernel_3pass.cuh"
 #include "kernels/kernel_singlethread.cuh"
 
 #define RUNS_WARMUP 2
@@ -77,11 +77,11 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
 
         //BENCHMARK cub_pss
         for (int r = 0; r < RUNS_WARMUP; r++) {
-            launch_4pass_popc_none(bdata->ce_start, bdata->ce_stop, 0, 256, bdata->d_mask, d_pss_full, d_iov, chunk_length, chunk_count);
+            launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, 0, 256, bdata->d_mask, d_pss_full, d_iov, chunk_length, chunk_count);
             launch_cub_pss(bdata->ce_start, bdata->ce_stop, d_pss_full, d_pss_total, chunk_count);
         }
         for (int r = 0; r < RUNS_MEASURE; r++) {
-            launch_4pass_popc_none(bdata->ce_start, bdata->ce_stop, 0, 256, bdata->d_mask, d_pss_full, d_iov, chunk_length, chunk_count);
+            launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, 0, 256, bdata->d_mask, d_pss_full, d_iov, chunk_length, chunk_count);
             timer = launch_cub_pss(bdata->ce_start, bdata->ce_stop, d_pss_full, d_pss_total, chunk_count);
             CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
             if (!bdata->validate(h_pss_total)) { timer = -1; }
@@ -95,10 +95,10 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
 
                 //BECHMARK 3pass_popc_none
                 for (int r = 0; r < RUNS_WARMUP; r++) {
-                    launch_4pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
+                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
                 }
                 for (int r = 0; r < RUNS_MEASURE; r++) {
-                    timer = launch_4pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
+                    timer = launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
                     CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
                     if (!bdata->validate(h_pss_total)) { timer = -1; }
                     result_data << (bdata->count*sizeof(T)) << ";3pass_popc_none;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << timer << "\n";
@@ -106,12 +106,12 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
 
                 //BECHMARK 3pass_pss_gmem
                 for (int r = 0; r < RUNS_WARMUP; r++) {
-                    launch_4pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
-                    launch_4pass_pss_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, chunk_count, d_pss_total);
+                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
+                    launch_3pass_pss_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, chunk_count, d_pss_total);
                 }
                 for (int r = 0; r < RUNS_MEASURE; r++) {
-                    launch_4pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
-                    timer = launch_4pass_pss_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, chunk_count, d_pss_total);
+                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
+                    timer = launch_3pass_pss_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, chunk_count, d_pss_total);
                     CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
                     if (!bdata->validate(h_pss_total)) { timer = -1; }
                     result_data << (bdata->count*sizeof(T)) << ";3pass_pss_gmem;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << timer << "\n";
@@ -119,10 +119,10 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
 
                 //BECHMARK 3pass_proc_true PARTIAL
                 for (int r = 0; r < RUNS_WARMUP; r++) {
-                    launch_4pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss, false, chunk_length, chunk_count);
+                    launch_3pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss, false, chunk_length, chunk_count);
                 }
                 for (int r = 0; r < RUNS_MEASURE; r++) {
-                    timer = launch_4pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss, false, chunk_length, chunk_count);
+                    timer = launch_3pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss, false, chunk_length, chunk_count);
                     CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
                     if (!bdata->validate(h_pss_total)) { timer = -1; }
                     result_data << (bdata->count*sizeof(T)) << ";3pass_pproc_true;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << timer << "\n";
@@ -130,14 +130,17 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
 
                 //BECHMARK 3pass_proc_true FULL
                 for (int r = 0; r < RUNS_WARMUP; r++) {
-                    launch_4pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss_full, true, chunk_length, chunk_count);
+                    launch_3pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss_full, true, chunk_length, chunk_count);
                 }
                 for (int r = 0; r < RUNS_MEASURE; r++) {
-                    timer = launch_4pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss_full, true, chunk_length, chunk_count);
+                    timer = launch_3pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss_full, true, chunk_length, chunk_count);
                     CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
                     if (!bdata->validate(h_pss_total)) { timer = -1; }
                     result_data << (bdata->count*sizeof(T)) << ";3pass_fproc_true;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << timer << "\n";
                 }
+
+                //BENCHMARK 3pass_proc_none PARTIAL
+                //BENCHMARK 3pass_proc_none FULL
 
             }
         }
