@@ -26,7 +26,7 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
 int main()
 {
     CUDA_TRY(cudaSetDevice(0));
-    benchmark_data<uint64_t> bdata(1<<29); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
+    benchmark_data<uint64_t> bdata(1<<18); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
     std::cout << "onecount: " << bdata.generate_mask(MASKTYPE_UNIFORM, 0.5) << "\n";
 
     run_benchmark_experiment(&bdata);
@@ -45,14 +45,12 @@ int main()
     uint32_t chunk_count = bdata.count / chunk_length;
     uint32_t* d_pss; // prefix sum scan buffer on device
     CUDA_TRY(cudaMalloc(&d_pss, chunk_count*sizeof(uint32_t)));
-    iovRow* d_iov; // intermediate optimization vector
-    CUDA_TRY(cudaMalloc(&d_iov, chunk_count*sizeof(iovRow)));
     uint32_t* d_pss_total; // pss total
     CUDA_TRY(cudaMalloc(&d_pss_total, sizeof(uint32_t)));
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
     uint32_t h_pss_total = 0;
-    // #1: pop count per chunk and populate IOV
-    launch_3pass_popc_iov(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, d_iov, chunk_length, chunk_count);
+    // #1: pop count per chunk
+    launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
     launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
     //launch_cub_pss(bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count); // cub launch as alternative
@@ -63,16 +61,15 @@ int main()
     int c = 20;
     float t;
     for (int i = 0; i < 3; i++) {
-        launch_3pass_proc_iov(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, d_iov, chunk_length, chunk_count);
+        launch_3pass_proc_none(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, chunk_length, chunk_count);
     }
     t = 0;
     for (int i = 0; i < c; i++) {
-        t += launch_3pass_proc_iov(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, d_iov, chunk_length, chunk_count);
+        t += launch_3pass_proc_none(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, chunk_length, chunk_count);
     }
-    std::cout << "timing iov: " << t/c << "\n";
+    std::cout << "timing none: " << t/c << "\n";
 
     // free temporary device resources
-    CUDA_TRY(cudaFree(d_iov));
     CUDA_TRY(cudaFree(d_pss));
     CUDA_TRY(cudaFree(d_pss_total));
 

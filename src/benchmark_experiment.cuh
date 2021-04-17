@@ -72,16 +72,14 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
         CUDA_TRY(cudaMalloc(&d_pss, chunk_count*sizeof(uint32_t)));
         uint32_t* d_pss_full; // prefix sum scan buffer on device
         CUDA_TRY(cudaMalloc(&d_pss_full, chunk_count*sizeof(uint32_t)));
-        iovRow* d_iov; // intermediate optimization vector
-        CUDA_TRY(cudaMalloc(&d_iov, chunk_count*sizeof(iovRow)));
 
         //BENCHMARK cub_pss
         for (int r = 0; r < RUNS_WARMUP; r++) {
-            launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, 0, 256, bdata->d_mask, d_pss_full, d_iov, chunk_length, chunk_count);
+            launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, 0, 256, bdata->d_mask, d_pss_full, chunk_length, chunk_count);
             launch_cub_pss(bdata->ce_start, bdata->ce_stop, d_pss_full, d_pss_total, chunk_count);
         }
         for (int r = 0; r < RUNS_MEASURE; r++) {
-            launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, 0, 256, bdata->d_mask, d_pss_full, d_iov, chunk_length, chunk_count);
+            launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, 0, 256, bdata->d_mask, d_pss_full, chunk_length, chunk_count);
             timer = launch_cub_pss(bdata->ce_start, bdata->ce_stop, d_pss_full, d_pss_total, chunk_count);
             CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
             if (!bdata->validate(h_pss_total)) { timer = -1; }
@@ -95,10 +93,10 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
 
                 //BECHMARK 3pass_popc_none
                 for (int r = 0; r < RUNS_WARMUP; r++) {
-                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
+                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, chunk_length, chunk_count);
                 }
                 for (int r = 0; r < RUNS_MEASURE; r++) {
-                    timer = launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
+                    timer = launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, chunk_length, chunk_count);
                     CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
                     if (!bdata->validate(h_pss_total)) { timer = -1; }
                     result_data << (bdata->count*sizeof(T)) << ";3pass_popc_none;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << timer << "\n";
@@ -106,11 +104,11 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
 
                 //BECHMARK 3pass_pss_gmem
                 for (int r = 0; r < RUNS_WARMUP; r++) {
-                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
+                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, chunk_length, chunk_count);
                     launch_3pass_pss_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, chunk_count, d_pss_total);
                 }
                 for (int r = 0; r < RUNS_MEASURE; r++) {
-                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, d_iov, chunk_length, chunk_count);
+                    launch_3pass_popc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_mask, d_pss, chunk_length, chunk_count);
                     timer = launch_3pass_pss_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, chunk_count, d_pss_total);
                     CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
                     if (!bdata->validate(h_pss_total)) { timer = -1; }
@@ -140,12 +138,30 @@ void run_benchmark_experiment(benchmark_data<T>* bdata) {
                 }
 
                 //BENCHMARK 3pass_proc_none PARTIAL
+                for (int r = 0; r < RUNS_WARMUP; r++) {
+                    launch_3pass_proc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss, false, chunk_length, chunk_count);
+                }
+                for (int r = 0; r < RUNS_MEASURE; r++) {
+                    timer = launch_3pass_proc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss, false, chunk_length, chunk_count);
+                    CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
+                    if (!bdata->validate(h_pss_total)) { timer = -1; }
+                    result_data << (bdata->count*sizeof(T)) << ";3pass_pproc_none;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << timer << "\n";
+                }
+
                 //BENCHMARK 3pass_proc_none FULL
+                for (int r = 0; r < RUNS_WARMUP; r++) {
+                    launch_3pass_proc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss_full, true, chunk_length, chunk_count);
+                }
+                for (int r = 0; r < RUNS_MEASURE; r++) {
+                    timer = launch_3pass_proc_none(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss_full, true, chunk_length, chunk_count);
+                    CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
+                    if (!bdata->validate(h_pss_total)) { timer = -1; }
+                    result_data << (bdata->count*sizeof(T)) << ";3pass_fproc_none;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << timer << "\n";
+                }
 
             }
         }
 
-        CUDA_TRY(cudaFree(d_iov));
         CUDA_TRY(cudaFree(d_pss));
     }
 
