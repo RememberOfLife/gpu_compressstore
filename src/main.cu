@@ -26,21 +26,21 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
 int main()
 {
     CUDA_TRY(cudaSetDevice(0));
-    benchmark_data<uint64_t> bdata(1<<18); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
-    std::cout << "onecount: " << bdata.generate_mask(MASKTYPE_UNIFORM, 0.5) << "\n";
+    benchmark_data<uint64_t> bdata(1<<29); // 1<<18 = 1MiB worth of elems (1<<28 = 2GiB)
+    uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
 
-    run_benchmark_experiment(&bdata);
+    run_benchmark_experiment(&bdata, onecount);
     std::cout << "done\n";
     return 0;
 
     // 3 pass algo
-    uint32_t chunk_length = 128;
+    uint32_t chunk_length = 32;
     uint32_t pass1_blockcount = 0;
     uint32_t pass1_threadcount = 256;
     uint32_t pass2_blockcount = 0;
     uint32_t pass2_threadcount = 256;
-    uint32_t pass3_blockcount = 0;
-    uint32_t pass3_threadcount = 256;
+    uint32_t pass3_blockcount = 28;
+    uint32_t pass3_threadcount = 32;
 
     uint32_t chunk_count = bdata.count / chunk_length;
     uint32_t* d_pss; // prefix sum scan buffer on device
@@ -52,22 +52,22 @@ int main()
     // #1: pop count per chunk
     launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, pass1_blockcount, pass1_threadcount, bdata.d_mask, d_pss, chunk_length, chunk_count);
     // #2: prefix sum scan (for partial trees)
-    launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
-    //launch_cub_pss(bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count); // cub launch as alternative
+    //launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, pass2_blockcount, pass2_threadcount, d_pss, chunk_count, d_pss_total);
+    launch_cub_pss(bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count); // cub launch as alternative
     CUDA_TRY(cudaMemcpy(&h_pss_total, d_pss_total, sizeof(uint32_t), cudaMemcpyDeviceToHost)); // copy total popcount to host
     double mask_dp = static_cast<double>(h_pss_total) / static_cast<double>(bdata.count); // distribution parameter (assuming uniform distribution)
     std::cout << "MDP: " << mask_dp << "\n";
-    // #4: processing of chunks
+    // #3: processing of chunks
     int c = 20;
     float t;
     for (int i = 0; i < 3; i++) {
-        launch_3pass_proc_none(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, chunk_length, chunk_count);
+        launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, chunk_length, chunk_count);
     }
     t = 0;
     for (int i = 0; i < c; i++) {
-        t += launch_3pass_proc_none(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, false, chunk_length, chunk_count);
+        t += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, pass3_blockcount, pass3_threadcount, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, chunk_length, chunk_count);
     }
-    std::cout << "timing none: " << t/c << "\n";
+    std::cout << "timing: " << t/c << "\n";
 
     // free temporary device resources
     CUDA_TRY(cudaFree(d_pss));
@@ -85,17 +85,17 @@ int main()
         std::cout << "\n";
     }
     std::cout << "\n";
-    for (int i = 0; i < 1024*3; i ++) {
+    for (int i = 0; i < 64; i ++) {
         // mask value for this input
         uint32_t offset32 = i % 8;
         uint32_t base32 = (i-offset32) / 8;
         uint32_t mask32 = reinterpret_cast<uint8_t*>(bdata.h_mask)[base32];
         uint32_t mask = 0b1 & (mask32>>(7-offset32));
-        //std::cout << "[" << i << "] " << mask;
+        std::cout << "[" << i << "] " << mask;
         // print number residing there
         uint64_t num = bdata.h_input[i];
         bool fits = (bdata.h_validation[i] == bdata.h_output[i]);
-        //std::cout << " - " << num << " - " << bdata.h_validation[i] << " - " << bdata.h_output[i] << " - " << fits << "\n";
+        std::cout << " - " << num << " - " << bdata.h_validation[i] << " - " << bdata.h_output[i] << " - " << fits << "\n";
     }//*/
 
     std::cout << "selected: " << h_pss_total << "\n";
