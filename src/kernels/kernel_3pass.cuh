@@ -211,7 +211,13 @@ __global__ void kernel_3pass_proc_true_striding(
     uint32_t stride = 1024; //BLOCK_DIM * 32; // 1024
     if (warp_offset == 0) {
         if (complete_pss) {
-            smem_out_idx[warp_index] = pss[base_idx/chunk_length];
+            if (base_idx/chunk_length < chunk_count) {
+                smem_out_idx[warp_index] = pss[base_idx/chunk_length];
+            } else {
+                return;
+                //printf("%i %i %i\n", blockIdx.x, threadIdx.x, base_idx/chunk_length);
+                //smem_out_idx[warp_index] = 0;
+            }
         } else {
             smem_out_idx[warp_index] = d_3pass_pproc_pssidx(base_idx/chunk_length, pss, chunk_count_p2);
         }
@@ -304,7 +310,7 @@ float launch_3pass_proc_true(
         chunk_count_p2 *= 2;
     }
     if (blockcount == 0) {
-        blockcount = chunk_count/threadcount;
+        blockcount = chunk_count/1024;
     }
     if (full_pss) {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
