@@ -11,19 +11,19 @@
 
 template <typename T>
 struct template_type_switch {
-    process(T* input, uint8_t* mask, T* output, uint64_t N);
+    void process(T* input, uint8_t* mask, T* output, uint64_t N);
 };
 
 template <>
 struct template_type_switch<uint8_t> {
-    process(uint8_t* input, uint8_t* mask, uint8_t* output, uint64_t N)
+    void process(uint8_t* input, uint8_t* mask, uint8_t* output, uint64_t N)
     {
         while (input < input+N) {
             // load data and mask
             __m512i a = _mm512_load_epi8(input);
-            __mmask64 k = _load_mask64(reinterpret_cast<__mmask8*>(mask));
+            __mmask64 k = _load_mask64(reinterpret_cast<__mmask64*>(mask));
             // compressstore into output_p
-            __mm512_mask_compressstoreu_epi8(output, k, a); // unaligned, no aligned version available
+            _mm512_mask_compressstoreu_epi8(output, k, a); // unaligned, no aligned version available
             // increase input_p by processed elems and output_p by popc of mask
             input += 64;
             mask += 8;
@@ -34,14 +34,14 @@ struct template_type_switch<uint8_t> {
 
 template <>
 struct template_type_switch<uint16_t> {
-    process(uint16_t* input, uint8_t* mask, uint16_t* output, uint64_t N)
+    void process(uint16_t* input, uint8_t* mask, uint16_t* output, uint64_t N)
     {
         while (input < input+N) {
             // load data and mask
             __m512i a = _mm512_load_epi16(input);
-            __mmask32 k = _load_mask32(reinterpret_cast<__mmask8*>(mask));
+            __mmask32 k = _load_mask32(reinterpret_cast<__mmask32*>(mask));
             // compressstore into output_p
-            __mm512_mask_compressstoreu_epi16(output, k, a); // unaligned, no aligned version available
+            _mm512_mask_compressstoreu_epi16(output, k, a); // unaligned, no aligned version available
             // increase input_p by processed elems and output_p by popc of mask
             input += 32;
             mask += 4;
@@ -52,14 +52,14 @@ struct template_type_switch<uint16_t> {
 
 template <>
 struct template_type_switch<uint32_t> {
-    process(uint32_t* input, uint8_t* mask, uint32_t* output, uint64_t N)
+    void process(uint32_t* input, uint8_t* mask, uint32_t* output, uint64_t N)
     {
         while (input < input+N) {
             // load data and mask
             __m512i a = _mm512_load_epi32(input);
-            __mmask16 k = _load_mask16(reinterpret_cast<__mmask8*>(mask));
+            __mmask16 k = _load_mask16(reinterpret_cast<__mmask16*>(mask));
             // compressstore into output_p
-            __mm512_mask_compressstoreu_epi32(output, k, a); // unaligned, no aligned version available
+            _mm512_mask_compressstoreu_epi32(output, k, a); // unaligned, no aligned version available
             // increase input_p by processed elems and output_p by popc of mask
             input += 16;
             mask += 2;
@@ -70,14 +70,14 @@ struct template_type_switch<uint32_t> {
 
 template <>
 struct template_type_switch<uint64_t> {
-    process(uint64_t* input, uint8_t* mask, uint64_t* output, uint64_t N)
+    void process(uint64_t* input, uint8_t* mask, uint64_t* output, uint64_t N)
     {
         while (input < input+N) {
             // load data and mask
             __m512i a = _mm512_load_epi64(input);
             __mmask8 k = _load_mask8(reinterpret_cast<__mmask8*>(mask));
             // compressstore into output_p
-            __mm512_mask_compressstoreu_epi64(output, k, a); // unaligned, no aligned version available
+            _mm512_mask_compressstoreu_epi64(output, k, a); // unaligned, no aligned version available
             // increase input_p by processed elems and output_p by popc of mask
             input += 8;
             mask += 1;
