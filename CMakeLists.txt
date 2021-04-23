@@ -10,6 +10,7 @@ set(INCLUDES
 set(SOURCES
     src/main.cu
 
+    src/avx_wrap.cuh
     src/benchmark_data.cuh
     src/cub_wraps.cuh
     src/cuda_time.cuh
@@ -22,4 +23,11 @@ set(SOURCES
 )
 
 add_executable(gpu_compressstore ${SOURCES})
+
+option(AVXPOWER "use avx512-ish" OFF)
+if(AVXPOWER)
+    target_compile_definitions(gpu_compressstore "AVXPOWER")
+    set(CMAKE_CXX_FLAGS "-march=native")
+endif()
+
 target_include_directories(gpu_compressstore PRIVATE ${INCLUDES})

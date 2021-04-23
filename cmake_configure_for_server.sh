@@ -14,4 +14,4 @@ cd "$build_dir"
 export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda
 export CUDACXX=/usr/local/cuda/bin/nvcc
 
-cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake -DCMAKE_BUILD_TYPE=Release -DAVXPOWER=ON ..

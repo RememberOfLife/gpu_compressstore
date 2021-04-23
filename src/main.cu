@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdio.h>
 
+#include "avx_wrap.cuh"
 #include "benchmark_data.cuh"
 #include "benchmark_experiment.cuh"
 #include "cub_wraps.cuh"
@@ -27,6 +28,22 @@ int main()
 {
     int cuda_dev_id = 0;
     CUDA_TRY(cudaSetDevice(cuda_dev_id));
+
+    // sandbox
+    benchmark_data<uint64_t> bdata(1<<28);
+    bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
+
+#ifdef AVXPOWER
+
+    for (int i = 0; i < 20; i++) {
+        std::cout << "time: " << launch_avx_compressstore(bdata.h_input, bdata.h_mask, bdata.h_output, bdata.count) << "\n";
+        bdata.validate(bdata.count);
+    }
+
+#endif
+
+    printf("done\n");
+    return 0;
 
 
     std::ofstream result_data;
