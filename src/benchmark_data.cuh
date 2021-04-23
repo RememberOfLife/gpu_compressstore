@@ -40,12 +40,6 @@ struct benchmark_data {
         CUDA_TRY(cudaMallocHost(&h_mask, byte_size_mask));
         CUDA_TRY(cudaMallocHost(&h_validation, byte_size_data));
         CUDA_TRY(cudaMallocHost(&h_output, byte_size_data));
-#ifdef AVXPOWER
-        // assert aligned malloc
-        assert(h_input % sizeof(T) == 0);
-        assert(h_validation % sizeof(T) == 0);
-        assert(h_output % sizeof(T) == 0);
-#endif
         CUDA_TRY(cudaMalloc(&d_input, byte_size_data));
         CUDA_TRY(cudaMalloc(&d_mask, byte_size_mask));
         CUDA_TRY(cudaMalloc(&d_output, byte_size_data));
