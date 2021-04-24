@@ -26,14 +26,14 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
 
 void run_sandbox() {
     benchmark_data<uint64_t> bdata(1<<29);
-    uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
+    uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.001);
     uint32_t chunk_length = 1024;
     uint32_t chunk_count = bdata.count / chunk_length;
     uint32_t max_chunk_count = bdata.count / 32;
-    uint32_t* d_pss1;
-    CUDA_TRY(cudaMalloc(&d_pss1, max_chunk_count*sizeof(uint32_t)));
-    uint32_t* d_pss2;
-    CUDA_TRY(cudaMalloc(&d_pss2, max_chunk_count*sizeof(uint32_t)));
+    uint32_t* d_pss;
+    CUDA_TRY(cudaMalloc(&d_pss, max_chunk_count*sizeof(uint32_t)));
+    uint32_t* d_popc;
+    CUDA_TRY(cudaMalloc(&d_popc, max_chunk_count*sizeof(uint32_t)));
 
     uint32_t* d_pss_total;
     CUDA_TRY(cudaMalloc(&d_pss_total, sizeof(uint32_t)));
@@ -43,9 +43,10 @@ void run_sandbox() {
     int c = 20;
     for (int i = 0; i < c; i++) {
 
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss1, chunk_length, chunk_count);
-        time += launch_cub_pss(bdata.ce_start, bdata.ce_stop, d_pss1, d_pss_total, chunk_count);
-        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss1, true, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_popc, 1024, bdata.count/1024);
+        time += launch_cub_pss(bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
+        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
         bdata.validate(bdata.count);
 

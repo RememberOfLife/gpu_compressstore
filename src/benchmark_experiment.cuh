@@ -22,6 +22,7 @@ void run_single_benchmark(
     uint32_t onecount,
     uint32_t* d_pss,
     uint32_t* d_pss_total,
+    uint32_t* d_popc,
     bool cub_pss,
     bool optimized_writeout_order,
     uint32_t chunk_length,
@@ -47,7 +48,7 @@ void run_single_benchmark(
 
     // writeout
     if (optimized_writeout_order) {
-        time = launch_3pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss, cub_pss, chunk_length, chunk_count);
+        time = launch_3pass_proc_true(bdata->ce_start, bdata->ce_stop, block_count, thread_count, bdata->d_input, bdata->d_output, bdata->d_mask, d_pss, cub_pss, d_popc, chunk_length, chunk_count);
         CUDA_TRY(cudaMemcpy(bdata->h_output, bdata->d_output, bdata->count*sizeof(T), cudaMemcpyDeviceToHost));
         if (!bdata->validate(onecount)) { time = -1; }
         result_data << (bdata->count * sizeof(T)) << ";" << (cub_pss ? "3pass_fproc_true" : "3pass_pproc_true") << ";" << chunk_length << ";" << block_count << ";" << thread_count << ";" << time << std::endl;
@@ -73,9 +74,13 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
     uint32_t max_chunk_count = bdata.count / 32;
     uint32_t* d_pss; // prefix sum scan buffer on device
     CUDA_TRY(cudaMalloc(&d_pss, max_chunk_count*sizeof(uint32_t)));
+    uint32_t* d_popc; // popc for optimizing 1024bit skips in sparse masks
+    CUDA_TRY(cudaMalloc(&d_popc, max_chunk_count*sizeof(uint32_t)));
     uint32_t* d_pss_total; // pss total
     CUDA_TRY(cudaMalloc(&d_pss_total, sizeof(uint32_t)));
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
+
+    launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_popc, 1024, bdata.count/1024); // popc for 1024bit chunks as skips
 
     //BENCHMARK 3pass variants and cub pss step
     std::array<uint32_t, 8> block_counts{0, sm_count, 2 * sm_count, 4 * sm_count, 8 * sm_count, 16 * sm_count, 32 * sm_count, 64 * sm_count};
@@ -86,10 +91,10 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
             uint32_t chunk_count = bdata.count / chunk_length;
             for (auto block_count : block_counts) {
                 for (auto thread_count : thread_counts) {
-                    run_single_benchmark<T>(&bdata, result_data, onecount, d_pss, d_pss_total, false, false, chunk_length, chunk_count, block_count, thread_count);
-                    run_single_benchmark<T>(&bdata, result_data, onecount, d_pss, d_pss_total, false, true, chunk_length, chunk_count, block_count, thread_count);
-                    run_single_benchmark<T>(&bdata, result_data, onecount, d_pss, d_pss_total, true, false, chunk_length, chunk_count, block_count, thread_count);
-                    run_single_benchmark<T>(&bdata, result_data, onecount, d_pss, d_pss_total, true, true, chunk_length, chunk_count, block_count, thread_count);
+                    run_single_benchmark<T>(&bdata, result_data, onecount, d_pss, d_pss_total, d_popc, false, false, chunk_length, chunk_count, block_count, thread_count);
+                    run_single_benchmark<T>(&bdata, result_data, onecount, d_pss, d_pss_total, d_popc, false, true, chunk_length, chunk_count, block_count, thread_count);
+                    run_single_benchmark<T>(&bdata, result_data, onecount, d_pss, d_pss_total, d_popc, true, false, chunk_length, chunk_count, block_count, thread_count);
+                    run_single_benchmark<T>(&bdata, result_data, onecount, d_pss, d_pss_total, d_popc, true, true, chunk_length, chunk_count, block_count, thread_count);
                 }
             }
         }

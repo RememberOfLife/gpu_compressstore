@@ -222,6 +222,7 @@ __global__ void kernel_3pass_proc_true_striding(
     T* output,
     uint8_t* mask,
     uint32_t* pss,
+    uint32_t* popc,
     uint32_t chunk_length,
     uint32_t chunk_count,
     uint32_t chunk_count_p2)
@@ -267,6 +268,11 @@ __global__ void kernel_3pass_proc_true_striding(
         }
     }
     for (uint32_t tid = base_idx + warp_offset; tid < stop_idx; tid += stride) {
+        // check chunk popcount at base_idx/chunk_length if this base_idx can be skipped
+        if (popc[base_idx/chunk_length] == 0) {
+            base_idx += stride;
+            continue;
+        }
         uint32_t mask_idx = base_idx/8+warp_offset*4;
         if (mask_idx < elem_count/8) {
             uchar4 ucx = *reinterpret_cast<uchar4*>(mask+mask_idx);
@@ -300,6 +306,7 @@ void switch_3pass_proc_true_striding(
     T* output,
     uint8_t* mask,
     uint32_t* pss,
+    uint32_t* popc,
     uint32_t chunk_length,
     uint32_t chunk_count,
     uint32_t chunk_count_p2)
@@ -307,27 +314,27 @@ void switch_3pass_proc_true_striding(
     switch (block_dim) {
         default:
         case 32: {
-                kernel_3pass_proc_true_striding<32, T, complete_pss><<<block_count, 32>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<32, T, complete_pss><<<block_count, 32>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 64: {
-                kernel_3pass_proc_true_striding<64, T, complete_pss><<<block_count, 64>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<64, T, complete_pss><<<block_count, 64>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 128: {
-                kernel_3pass_proc_true_striding<128, T, complete_pss><<<block_count, 128>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<128, T, complete_pss><<<block_count, 128>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 256: {
-                kernel_3pass_proc_true_striding<256, T, complete_pss><<<block_count, 256>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<256, T, complete_pss><<<block_count, 256>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 512: {
-                kernel_3pass_proc_true_striding<512, T, complete_pss><<<block_count, 512>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<512, T, complete_pss><<<block_count, 512>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
         case 1024: {
-                kernel_3pass_proc_true_striding<1024, T, complete_pss><<<block_count, 1024>>>(input, output, mask, pss, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<1024, T, complete_pss><<<block_count, 1024>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
             }
             break;
     }
@@ -345,6 +352,7 @@ float launch_3pass_proc_true(
     uint8_t* d_mask,
     uint32_t* d_pss,
     bool full_pss,
+    uint32_t* d_popc,
     uint32_t chunk_length,
     uint32_t chunk_count)
 {
@@ -358,11 +366,11 @@ float launch_3pass_proc_true(
     }
     if (full_pss) {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (switch_3pass_proc_true_striding<T, true>(blockcount, threadcount, d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
+            (switch_3pass_proc_true_striding<T, true>(blockcount, threadcount, d_input, d_output, d_mask, d_pss, d_popc, chunk_length, chunk_count, chunk_count_p2))
         );
     } else {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
-            (switch_3pass_proc_true_striding<T, false>(blockcount, threadcount, d_input, d_output, d_mask, d_pss, chunk_length, chunk_count, chunk_count_p2))
+            (switch_3pass_proc_true_striding<T, false>(blockcount, threadcount, d_input, d_output, d_mask, d_pss, d_popc, chunk_length, chunk_count, chunk_count_p2))
         );
     }
     return time;
