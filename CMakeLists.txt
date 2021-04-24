@@ -27,7 +27,7 @@ add_executable(gpu_compressstore ${SOURCES})
 option(AVXPOWER "use avx512-ish" OFF)
 if(AVXPOWER)
     target_compile_definitions(gpu_compressstore PUBLIC AVXPOWER)
-    set(CMAKE_CXX_FLAGS "-march=native")
+    set(CMAKE_CUDA_FLAGS "-Xcompiler -march=native")
 endif()
 
 target_include_directories(gpu_compressstore PRIVATE ${INCLUDES})

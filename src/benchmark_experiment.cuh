@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 
+#include "avx_wrap.cuh"
 #include "benchmark_data.cuh"
 #include "cub_wraps.cuh"
 #include "cuda_try.cuh"

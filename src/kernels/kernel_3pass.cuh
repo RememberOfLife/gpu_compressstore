@@ -172,6 +172,50 @@ __device__ uint32_t d_3pass_pproc_pssidx(uint32_t thread_idx, uint32_t* pss, uin
     return idx_acc;
 }
 
+__global__ void kernel_3pass_pss2_gmem_monolithic(uint32_t* pss_in, uint32_t* pss_out, uint32_t chunk_count, uint32_t chunk_count_p2)
+{
+    uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; // thread index = chunk id
+    if (tid >= chunk_count) {
+        return;
+    }
+    pss_out[tid] = d_3pass_pproc_pssidx(tid, pss_in, chunk_count_p2);
+}
+
+__global__ void kernel_3pass_pss2_gmem_striding(uint32_t* pss_in, uint32_t* pss_out, uint32_t chunk_count, uint32_t chunk_count_p2)
+{
+    for (uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x; tid < chunk_count; tid += blockDim.x * gridDim.x) {
+        pss_out[tid] = d_3pass_pproc_pssidx(tid, pss_in, chunk_count_p2);
+    }
+}
+
+// computes per chunk pss for all chunks
+float launch_3pass_pss2_gmem(
+    cudaEvent_t ce_start,
+    cudaEvent_t ce_stop,
+    uint32_t blockcount,
+    uint32_t threadcount,
+    uint32_t* d_pss_in,
+    uint32_t* d_pss_out,
+    uint32_t chunk_count)
+{
+    float time;
+    uint32_t chunk_count_p2 = 1;
+    while (chunk_count_p2 < chunk_count) {
+        chunk_count_p2 *= 2;
+    }
+    if (blockcount == 0) {
+        blockcount = (chunk_count/threadcount)+1;
+        CUDA_TIME(ce_start, ce_stop, 0, &time,
+            (kernel_3pass_pss2_gmem_monolithic<<<blockcount, threadcount>>>(d_pss_in, d_pss_out, chunk_count, chunk_count_p2))
+        );
+    } else {
+        CUDA_TIME(ce_start, ce_stop, 0, &time,
+            (kernel_3pass_pss2_gmem_striding<<<blockcount, threadcount>>>(d_pss_in, d_pss_out, chunk_count, chunk_count_p2))
+        );
+    }
+    return time;
+}
+
 template <uint32_t BLOCK_DIM, typename T, bool complete_pss>
 __global__ void kernel_3pass_proc_true_striding(
     T* input,

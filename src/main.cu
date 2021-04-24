@@ -4,10 +4,10 @@
 #include <iostream>
 #include <stdio.h>
 
-#include "avx_wrap.cuh"
 #include "benchmark_data.cuh"
 #include "benchmark_experiment.cuh"
 #include "cub_wraps.cuh"
+#include "cuda_time.cuh"
 #include "cuda_try.cuh"
 #include "kernels/kernel_3pass.cuh"
 #include "kernels/kernel_singlethread.cuh"
@@ -24,27 +24,44 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
     free(h_buffer);
 }
 
+void run_sandbox() {
+    benchmark_data<uint64_t> bdata(1<<29);
+    uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
+    uint32_t chunk_length = 1024;
+    uint32_t chunk_count = bdata.count / chunk_length;
+    uint32_t max_chunk_count = bdata.count / 32;
+    uint32_t* d_pss1;
+    CUDA_TRY(cudaMalloc(&d_pss1, max_chunk_count*sizeof(uint32_t)));
+    uint32_t* d_pss2;
+    CUDA_TRY(cudaMalloc(&d_pss2, max_chunk_count*sizeof(uint32_t)));
+
+    uint32_t* d_pss_total;
+    CUDA_TRY(cudaMalloc(&d_pss_total, sizeof(uint32_t)));
+    CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
+
+    float time;
+    int c = 20;
+    for (int i = 0; i < c; i++) {
+
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss1, chunk_length, chunk_count);
+        time += launch_cub_pss(bdata.ce_start, bdata.ce_stop, d_pss1, d_pss_total, chunk_count);
+        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss1, true, chunk_length, chunk_count);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(bdata.count);
+
+    }
+    std::cout << "time: " << time/c << "\n";
+
+    printf("done\n");
+    exit(0);
+}
+
 int main()
 {
     int cuda_dev_id = 0;
     CUDA_TRY(cudaSetDevice(cuda_dev_id));
 
-    // sandbox
-    benchmark_data<uint64_t> bdata(1<<28);
-    bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
-
-#ifdef AVXPOWER
-
-    for (int i = 0; i < 20; i++) {
-        std::cout << "time: " << launch_avx_compressstore(bdata.h_input, bdata.h_mask, bdata.h_output, bdata.count) << "\n";
-        bdata.validate(bdata.count);
-    }
-
-#endif
-
-    printf("done\n");
-    return 0;
-
+    run_sandbox();
 
     std::ofstream result_data;
     result_data.open("result_data.csv");
