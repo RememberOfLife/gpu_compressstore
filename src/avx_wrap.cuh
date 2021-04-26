@@ -86,12 +86,26 @@ struct template_type_switch<uint64_t> {
     }
 };
 
+// reverse bits in a byte
+uint8_t reverse_byte(uint8_t b) {
+   b = (b & 0xF0) >> 4 | (b & 0x0F) << 4;
+   b = (b & 0xCC) >> 2 | (b & 0x33) << 2;
+   b = (b & 0xAA) >> 1 | (b & 0x55) << 1;
+   return b;
+}
+
 // hostside avx compressstore wrapper for datatypes
 template <typename T>
 float launch_avx_compressstore(T* input, uint8_t* mask, T* output, uint64_t N) {
+    // create temporary mask buffer with reverse bit order per byte (avx req)
+    uint8_t* reverse_mask = malloc(sizeof(uint8_t) * N);
+    for (int i = 0; i < N; i++) {
+        reverse_mask[i] = reverse_byte(mask[i]);
+    }
     std::chrono::time_point<std::chrono::steady_clock> start_clock = std::chrono::steady_clock::now();
-    template_type_switch<T>::process(input, mask, output, N);
+    template_type_switch<T>::process(input, reverse_mask, output, N);
     std::chrono::time_point<std::chrono::steady_clock> stop_clock = std::chrono::steady_clock::now();
+    free(reverse_mask);
     return std::chrono::duration_cast<std::chrono::milliseconds>(stop_clock-start_clock).count();
 }
 
