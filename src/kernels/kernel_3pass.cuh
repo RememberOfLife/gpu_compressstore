@@ -268,11 +268,11 @@ __global__ void kernel_3pass_proc_true_striding(
         }
     }
     for (uint32_t tid = base_idx + warp_offset; tid < stop_idx; tid += stride) {
-        // check chunk popcount at base_idx/chunk_length if this base_idx can be skipped
-        if (popc[base_idx/chunk_length] == 0) {
-            base_idx += stride;
-            continue;
-        }
+        // check chunk popcount at base_idx for potential skipped
+        // if (popc[base_idx/stride + (stride*warp_index)] == 0) {
+        //     base_idx += stride;
+        //     continue;
+        // }
         uint32_t mask_idx = base_idx/8+warp_offset*4;
         if (mask_idx < elem_count/8) {
             uchar4 ucx = *reinterpret_cast<uchar4*>(mask+mask_idx);

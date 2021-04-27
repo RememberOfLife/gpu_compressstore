@@ -39,15 +39,17 @@ void run_single_benchmark(
 
     // prefix sum
     if (cub_pss) {
-        time = launch_3pass_pss2_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, d_pss2, chunk_count);
-        result_data << (bdata->count * sizeof(T)) << ";" << bdata->p << ";3pass_pss2_gmem;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << time << std::endl;
         time = launch_cub_pss(bdata->ce_start, bdata->ce_stop, d_pss, d_pss_total, chunk_count);
         result_data << (bdata->count * sizeof(T)) << ";" << bdata->p << ";cub_pss;" << chunk_length << ";0;0;" << time << std::endl;
     }
     else {
         time = launch_3pass_pss_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, chunk_count, d_pss_total);
         result_data << (bdata->count * sizeof(T)) << ";" << bdata->p << ";3pass_pss_gmem;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << time << std::endl;
+        time = launch_3pass_pss2_gmem(bdata->ce_start, bdata->ce_stop, block_count, thread_count, d_pss, d_pss2, chunk_count);
+        result_data << (bdata->count * sizeof(T)) << ";" << bdata->p << ";3pass_pss2_gmem;" << chunk_length << ";" << block_count << ";" << thread_count << ";" << time << std::endl;
     }
+
+    CUDA_TRY(cudaMemset(bdata->d_output, 0x00, bdata->count)); // reset output between runs
 
     // writeout
     if (optimized_writeout_order) {
@@ -108,6 +110,7 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
     float time;
     //BENCHMARK cub_flagged_bytemask
     for (int r = 0; r < RUNS_MEASURE; r++) {
+        CUDA_TRY(cudaMemset(bdata.d_output, 0x00, bdata.count)); // reset output between runs
         time = launch_cub_flagged_bytemask(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_output, bdata.h_mask, d_pss_total, bdata.count);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(T), cudaMemcpyDeviceToHost));
         if (!bdata.validate(onecount)) { time = -1; }
@@ -116,6 +119,7 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
 
     //BENCHMARK cub_flagged_biterator
     for (int r = 0; r < RUNS_MEASURE; r++) {
+        CUDA_TRY(cudaMemset(bdata.d_output, 0x00, bdata.count)); // reset output between runs
         time = launch_cub_flagged_biterator(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss_total, bdata.count);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(T), cudaMemcpyDeviceToHost));
         if (!bdata.validate(onecount)) { time = -1; }
@@ -123,7 +127,8 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
     }
 
     //BENCHMARK single_thread
-    for (int r = 0; r < 3; r++) {
+    for (int r = 0; r < 2; r++) {
+        CUDA_TRY(cudaMemset(bdata.d_output, 0x00, bdata.count)); // reset output between runs
         time = launch_singlethread(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(T), cudaMemcpyDeviceToHost));
         if (!bdata.validate(onecount)) { time = -1; }

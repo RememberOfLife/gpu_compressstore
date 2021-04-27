@@ -70,14 +70,14 @@ int main()
         std::cerr << "error: result file could not be opened\n";
         exit(1);
     }
-    result_data << "datasize;p;algo;chunklength;blocks;threads;time\n";
-    // run from 16MiB to  in powers of 8GiB
-    //for (uint32_t datasize = 1<<21; datasize <= 1<<30; datasize <<=1) {
-    {uint32_t datasize = 1<<21;
+    result_data << "databytes;p;algo;chunklength;blocks;threads;time\n";
+    // run from 16MiB to 8GiB in powers of 2
+    for (uint32_t datasize = 1<<21; datasize <= 1<<30; datasize <<=1) {
         run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.5);
         run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.05);
         run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.005);
         run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.0005);
+        run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.00005);
     }
     
     result_data.close();
