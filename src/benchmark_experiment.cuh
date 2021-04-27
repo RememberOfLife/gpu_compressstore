@@ -145,7 +145,7 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
     for (int r = 0; r < RUNS_MEASURE; r++) {
         time = launch_avx_compressstore(bdata.h_input, bdata.h_mask, bdata.h_output, bdata.count);
         if (!bdata.validate(onecount)) { time = -1; }
-        result_data << (bdata.count*sizeof(T)) << ";" << bdata.p << ";avx512;512;0;0;" << time << "\n";
+        result_data << (bdata.count*sizeof(T)) << ";" << bdata.p << ";avx512;0;0;0;" << time << "\n"; // should be chunklength 512 but is 0 for graphs
     }
 #endif
 }
