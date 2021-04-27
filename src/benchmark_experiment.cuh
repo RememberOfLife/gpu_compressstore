@@ -139,8 +139,15 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
     CUDA_TRY(cudaFree(d_pss));
     CUDA_TRY(cudaFree(d_pss_total));
 
+#ifdef  AVXPOWER
+    return;
     //BENCHMARK avx cpu
-    //TODO
+    for (int r = 0; r < RUNS_MEASURE; r++) {
+        time = launch_avx_compressstore(bdata.h_input, bdata.h_mask, bdata.h_output, bdata.count);
+        if (!bdata.validate(onecount)) { time = -1; }
+        result_data << (bdata.count*sizeof(T)) << ";" << bdata.p << ";avx512;512;0;0;" << time << "\n";
+    }
+#endif
 }
 
 #endif
