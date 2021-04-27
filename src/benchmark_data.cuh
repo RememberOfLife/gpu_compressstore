@@ -19,6 +19,7 @@ enum MaskType {
 template <typename T>
 struct benchmark_data {
     uint64_t count; // elems
+    double p; // marg
     T* h_input;
     uint8_t* h_mask;
     T* h_validation; // correct results
@@ -30,16 +31,21 @@ struct benchmark_data {
     cudaEvent_t ce_stop;
 
     benchmark_data(uint64_t count):
-        count(count)
+        count(count),
+        p(0)
     {
         //TODO force byte_size to multiple of 32bit and element count to multiple of 8; fill with 0s at end
         // alloc memory for all pointers
         uint64_t byte_size_data = count * sizeof(T);
         uint64_t byte_size_mask = count / 8;
-        CUDA_TRY(cudaMallocHost(&h_input, byte_size_data));
-        CUDA_TRY(cudaMallocHost(&h_mask, byte_size_mask));
-        CUDA_TRY(cudaMallocHost(&h_validation, byte_size_data));
-        CUDA_TRY(cudaMallocHost(&h_output, byte_size_data));
+        // CUDA_TRY(cudaMallocHost(&h_input, byte_size_data));
+        // CUDA_TRY(cudaMallocHost(&h_mask, byte_size_mask));
+        // CUDA_TRY(cudaMallocHost(&h_validation, byte_size_data));
+        // CUDA_TRY(cudaMallocHost(&h_output, byte_size_data));
+        h_input = (T*)malloc(byte_size_data);
+        h_mask = (uint8_t*)malloc(byte_size_mask);
+        h_validation = (T*)malloc(byte_size_data);
+        h_output = (T*)malloc(byte_size_data);
         CUDA_TRY(cudaMalloc(&d_input, byte_size_data));
         CUDA_TRY(cudaMalloc(&d_mask, byte_size_mask));
         CUDA_TRY(cudaMalloc(&d_output, byte_size_data));
@@ -63,14 +69,19 @@ struct benchmark_data {
         CUDA_TRY(cudaFree(d_output));
         CUDA_TRY(cudaFree(d_mask));
         CUDA_TRY(cudaFree(d_input));
-        CUDA_TRY(cudaFreeHost(h_output));
-        CUDA_TRY(cudaFreeHost(h_validation));
-        CUDA_TRY(cudaFreeHost(h_mask));
-        CUDA_TRY(cudaFreeHost(h_input));
+        // CUDA_TRY(cudaFreeHost(h_output));
+        // CUDA_TRY(cudaFreeHost(h_validation));
+        // CUDA_TRY(cudaFreeHost(h_mask));
+        // CUDA_TRY(cudaFreeHost(h_input));
+        free(h_output);
+        free(h_validation);
+        free(h_mask);
+        free(h_input);
     }
 
     uint32_t generate_mask(MaskType mtype, double marg)
     {
+        p = marg;
         fast_prng rng(42);
         switch (mtype)
         {

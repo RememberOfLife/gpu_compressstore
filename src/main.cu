@@ -26,7 +26,7 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
 
 void run_sandbox() {
     benchmark_data<uint64_t> bdata(1<<29);
-    uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.001);
+    uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
     uint32_t chunk_length = 1024;
     uint32_t chunk_count = bdata.count / chunk_length;
     uint32_t max_chunk_count = bdata.count / 32;
@@ -62,7 +62,7 @@ int main()
     int cuda_dev_id = 0;
     CUDA_TRY(cudaSetDevice(cuda_dev_id));
 
-    run_sandbox();
+    //run_sandbox();
 
     std::ofstream result_data;
     result_data.open("result_data.csv");
@@ -70,10 +70,14 @@ int main()
         std::cerr << "error: result file could not be opened\n";
         exit(1);
     }
-    result_data << "datasize;algo;chunklength;blocks;threads;time\n";
-
-    for (uint32_t datasize = 1<<21; datasize <= 1<<29; datasize <<=1) {
+    result_data << "datasize;p;algo;chunklength;blocks;threads;time\n";
+    // run from 16MiB to  in powers of 8GiB
+    //for (uint32_t datasize = 1<<21; datasize <= 1<<30; datasize <<=1) {
+    {uint32_t datasize = 1<<21;
         run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.5);
+        run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.05);
+        run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.005);
+        run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.0005);
     }
     
     result_data.close();
