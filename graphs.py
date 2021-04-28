@@ -142,7 +142,7 @@ def dg_throughput_over_datasize(data, outdirpath):
 def main():
     args = sys.argv
     input_path = ""
-    outdirpath = "./"
+    outdirpath = "./graphs/"
     if len(args) > 1:
         input_path = args[1]
     else:

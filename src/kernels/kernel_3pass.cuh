@@ -269,10 +269,10 @@ __global__ void kernel_3pass_proc_true_striding(
     }
     for (uint32_t tid = base_idx + warp_offset; tid < stop_idx; tid += stride) {
         // check chunk popcount at base_idx for potential skipped
-        // if (popc[base_idx/stride + (stride*warp_index)] == 0) {
-        //     base_idx += stride;
-        //     continue;
-        // }
+        if (popc[base_idx/stride] == 0) {
+            base_idx += stride;
+            continue;
+        }
         uint32_t mask_idx = base_idx/8+warp_offset*4;
         if (mask_idx < elem_count/8) {
             uchar4 ucx = *reinterpret_cast<uchar4*>(mask+mask_idx);
@@ -363,6 +363,9 @@ float launch_3pass_proc_true(
     }
     if (blockcount == 0) {
         blockcount = chunk_count/1024;
+    }
+    if (blockcount < 1) {
+        blockcount = 1;
     }
     if (full_pss) {
         CUDA_TIME(ce_start, ce_stop, 0, &time,
