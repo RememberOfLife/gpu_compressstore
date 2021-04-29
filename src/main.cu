@@ -73,6 +73,8 @@ int main()
     result_data << "databytes;p;algo;chunklength;blocks;threads;time\n";
     // run from 16MiB to 8GiB in powers of 2
     for (uint64_t datasize = 1<<21; datasize <= 1<<30; datasize <<=1) {
+        run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.995);
+        run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.95);
         run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.5);
         run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.05);
         run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, datasize, MASKTYPE_UNIFORM, 0.005);

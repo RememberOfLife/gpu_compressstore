@@ -12,7 +12,7 @@
 #include "kernels/kernel_3pass.cuh"
 #include "kernels/kernel_singlethread.cuh"
 
-#define RUNS_MEASURE 20
+#define RUNS_MEASURE 2
 
 // benchmark for 3pass variations
 template <typename T>

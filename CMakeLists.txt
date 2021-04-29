@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.17)
 project(gpu_compressstore LANGUAGES CXX CUDA)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 set(INCLUDES
     src
@@ -29,5 +29,7 @@ if(AVXPOWER)
     target_compile_definitions(gpu_compressstore PUBLIC AVXPOWER)
     set(CMAKE_CUDA_FLAGS "-Xcompiler -march=native")
 endif()
+
+set_property(TARGET gpu_compressstore PROPERTY CUDA_ARCHITECTURES 75 61)
 
 target_include_directories(gpu_compressstore PRIVATE ${INCLUDES})
