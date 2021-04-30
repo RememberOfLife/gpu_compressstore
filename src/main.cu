@@ -10,6 +10,7 @@
 #include "cuda_time.cuh"
 #include "cuda_try.cuh"
 #include "kernels/kernel_3pass.cuh"
+#include "kernels/kernel_copy_add.cuh"
 #include "kernels/kernel_singlethread.cuh"
 
 template <typename T>
@@ -39,8 +40,8 @@ void run_sandbox() {
     CUDA_TRY(cudaMalloc(&d_pss_total, sizeof(uint32_t)));
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
 
-    float time;
-    int c = 20;
+    float time = 0;
+    int c = 0;
     for (int i = 0; i < c; i++) {
 
         time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss, chunk_length, chunk_count);
@@ -52,6 +53,24 @@ void run_sandbox() {
 
     }
     std::cout << "time: " << time/c << "\n";
+
+    float min_time = -1;
+    std::array<uint32_t, 6> thread_counts{32, 64, 128, 256, 512, 1024};
+    std::array<uint32_t, 5> block_counts{0, 256, 1024, 2048, 4096};
+    for (auto block_count : block_counts) {
+        for (auto thread_count : thread_counts) {
+            time = 0;
+            for (int i = 0; i < 20; i++) {
+                time += launch_copy_add(bdata.ce_start, bdata.ce_stop, block_count, thread_count, bdata.d_input, bdata.d_output, bdata.d_mask, bdata.count, true);
+            }
+            time /= 20;
+            if (min_time < 0 || min_time > time) {
+                min_time = time;
+            }
+            std::cout << "B#" << block_count << " T#" << thread_count << " : " << time << "\n";
+        }
+    }
+    std::cout << "min_time: " << min_time << "\n";
 
     printf("done\n");
     exit(0);

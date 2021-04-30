@@ -19,6 +19,7 @@ set(SOURCES
     src/fast_prng.hpp
 
     src/kernels/kernel_3pass.cuh
+    src/kernels/kernel_copy_add.cuh
     src/kernels/kernel_singlethread.cuh
 )
 
