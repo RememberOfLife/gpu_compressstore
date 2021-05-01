@@ -49,10 +49,10 @@ template <> struct std::iterator_traits <bitstream_iterator> {
     typedef bool value_type;
 };
 
-float launch_cub_pss(cudaEvent_t ce_start, cudaEvent_t ce_stop, uint32_t* d_pss, uint32_t* d_pss_total, uint32_t chunk_count)
+float launch_cub_pss(cudaStream_t stream, cudaEvent_t ce_start, cudaEvent_t ce_stop, uint32_t* d_pss, uint32_t* d_pss_total, uint32_t chunk_count)
 {
     // use cub pss for now
-    launch_3pass_pssskip(d_pss, d_pss_total, chunk_count);
+    launch_3pass_pssskip(stream, d_pss, d_pss_total, chunk_count);
     uint32_t* d_pss_tmp;
     CUDA_TRY(cudaMalloc(&d_pss_tmp, chunk_count*sizeof(uint32_t)));
     void* d_temp_storage = NULL;
@@ -61,13 +61,18 @@ float launch_cub_pss(cudaEvent_t ce_start, cudaEvent_t ce_stop, uint32_t* d_pss,
     CUDA_TRY(cudaMalloc(&d_temp_storage, temp_storage_bytes));
     // timed relevant computation
     float time;
-    CUDA_TIME(ce_start, ce_stop, 0, &time,
-        CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_pss, d_pss_tmp, chunk_count))
-    );
+    if (stream == 0) {
+        CUDA_TIME(ce_start, ce_stop, 0, &time,
+            CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_pss, d_pss_tmp, chunk_count, 0))
+        );
+    } else {
+        CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_pss, d_pss_tmp, chunk_count, stream));
+        time = 0;
+    }
     CUDA_TRY(cudaFree(d_temp_storage));
-    CUDA_TRY(cudaMemcpy(d_pss, d_pss_tmp, chunk_count*sizeof(uint32_t), cudaMemcpyDeviceToDevice));
+    CUDA_TRY(cudaMemcpyAsync(d_pss, d_pss_tmp, chunk_count*sizeof(uint32_t), cudaMemcpyDeviceToDevice, stream));
     CUDA_TRY(cudaFree(d_pss_tmp));
-    launch_3pass_pssskip(d_pss, d_pss_total, chunk_count);
+    launch_3pass_pssskip(stream, d_pss, d_pss_total, chunk_count);
     return time;
 }
 

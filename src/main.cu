@@ -9,6 +9,7 @@
 #include "cub_wraps.cuh"
 #include "cuda_time.cuh"
 #include "cuda_try.cuh"
+#include "streaming_3pass.cuh"
 #include "kernels/kernel_3pass.cuh"
 #include "kernels/kernel_copy_add.cuh"
 #include "kernels/kernel_singlethread.cuh"
@@ -40,19 +41,29 @@ void run_sandbox() {
     CUDA_TRY(cudaMalloc(&d_pss_total, sizeof(uint32_t)));
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
 
+    std::cout << "setup\n";
+
+    CUDA_TRY(cudaFree(d_pss_total));
+    CUDA_TRY(cudaFree(d_popc));
+    CUDA_TRY(cudaFree(d_pss));
+
     float time = 0;
-    int c = 0;
+    int c = 1;
     for (int i = 0; i < c; i++) {
 
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_popc, 1024, bdata.count/1024);
-        time += launch_cub_pss(bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
-        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_popc, 1024, bdata.count/1024);
+        // time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
+        // time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        time += launch_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, 2);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
         bdata.validate(bdata.count);
 
     }
     std::cout << "time: " << time/c << "\n";
+
+    printf("done\n");
+    exit(0);
 
     float min_time = -1;
     std::array<uint32_t, 6> thread_counts{32, 64, 128, 256, 512, 1024};
@@ -81,7 +92,7 @@ int main()
     int cuda_dev_id = 0;
     CUDA_TRY(cudaSetDevice(cuda_dev_id));
 
-    //run_sandbox();
+    run_sandbox();
 
     std::ofstream result_data;
     result_data.open("result_data.csv");

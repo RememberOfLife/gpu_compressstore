@@ -12,11 +12,13 @@ set(SOURCES
 
     src/avx_wrap.cuh
     src/benchmark_data.cuh
+    src/benchmark_experiment.cuh
     src/cub_wraps.cuh
     src/cuda_time.cuh
     src/cuda_try.cuh
     src/fast_prng.cpp
     src/fast_prng.hpp
+    src/streaming_3pass.cuh
 
     src/kernels/kernel_3pass.cuh
     src/kernels/kernel_copy_add.cuh

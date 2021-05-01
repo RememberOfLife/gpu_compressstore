@@ -39,7 +39,7 @@ void run_single_benchmark(
 
     // prefix sum
     if (cub_pss) {
-        time = launch_cub_pss(bdata->ce_start, bdata->ce_stop, d_pss, d_pss_total, chunk_count);
+        time = launch_cub_pss(0, bdata->ce_start, bdata->ce_stop, d_pss, d_pss_total, chunk_count);
         result_data << (bdata->count * sizeof(T)) << ";" << bdata->p << ";cub_pss;" << chunk_length << ";0;0;" << time << std::endl;
     }
     else {
@@ -127,20 +127,17 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
     }
 
     //BENCHMARK single_thread
-    for (int r = 0; r < 2; r++) {
-        CUDA_TRY(cudaMemset(bdata.d_output, 0x00, bdata.count)); // reset output between runs
-        time = launch_singlethread(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count);
-        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(T), cudaMemcpyDeviceToHost));
-        if (!bdata.validate(onecount)) { time = -1; }
-        result_data << (bdata.count*sizeof(T)) << ";" << bdata.p << ";single_thread;0;1;1;" << time << "\n";
-    }
+    CUDA_TRY(cudaMemset(bdata.d_output, 0x00, bdata.count)); // reset output between runs
+    time = launch_singlethread(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count);
+    CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(T), cudaMemcpyDeviceToHost));
+    if (!bdata.validate(onecount)) { time = -1; }
+    result_data << (bdata.count*sizeof(T)) << ";" << bdata.p << ";single_thread;0;1;1;" << time << "\n";
 
     // free temporary device resources
     CUDA_TRY(cudaFree(d_pss));
     CUDA_TRY(cudaFree(d_pss_total));
 
 #ifdef  AVXPOWER
-    return;
     //BENCHMARK avx cpu
     for (int r = 0; r < RUNS_MEASURE; r++) {
         time = launch_avx_compressstore(bdata.h_input, bdata.h_mask, bdata.h_output, bdata.count);

@@ -18,7 +18,8 @@ template <>
 struct template_type_switch<uint8_t> {
     static void process(uint8_t* input, uint8_t* mask, uint8_t* output, uint64_t N)
     {
-        while (input < input+N) {
+        uint8_t* stop = input+N;
+        while (input < stop) {
             // load data and mask
             __m512i a = _mm512_loadu_si512(input);
             __mmask64 k = _load_mask64(reinterpret_cast<__mmask64*>(mask));
@@ -36,7 +37,8 @@ template <>
 struct template_type_switch<uint16_t> {
     static void process(uint16_t* input, uint8_t* mask, uint16_t* output, uint64_t N)
     {
-        while (input < input+N) {
+        uint16_t* stop = input+N;
+        while (input < stop) {
             // load data and mask
             __m512i a = _mm512_loadu_si512(input);
             __mmask32 k = _load_mask32(reinterpret_cast<__mmask32*>(mask));
@@ -54,7 +56,8 @@ template <>
 struct template_type_switch<uint32_t> {
     static void process(uint32_t* input, uint8_t* mask, uint32_t* output, uint64_t N)
     {
-        while (input < input+N) {
+        uint32_t* stop = input+N;
+        while (input < stop) {
             // load data and mask
             __m512i a = _mm512_loadu_si512(input);
             __mmask16 k = _load_mask16(reinterpret_cast<__mmask16*>(mask));
@@ -72,7 +75,8 @@ template <>
 struct template_type_switch<uint64_t> {
     static void process(uint64_t* input, uint8_t* mask, uint64_t* output, uint64_t N)
     {
-        while (input < input+N) {
+        uint64_t* stop = input+N;
+        while (input < stop) {
             // load data and mask
             __m512i a = _mm512_loadu_si512(input);
             __mmask8 k = _load_mask8(reinterpret_cast<__mmask8*>(mask));
@@ -98,8 +102,8 @@ uint8_t reverse_byte(uint8_t b) {
 template <typename T>
 float launch_avx_compressstore(T* input, uint8_t* mask, T* output, uint64_t N) {
     // create temporary mask buffer with reverse bit order per byte (avx req)
-    uint8_t* reverse_mask = (uint8_t*)malloc(sizeof(uint8_t) * N);
-    for (int i = 0; i < N; i++) {
+    uint8_t* reverse_mask = (uint8_t*)malloc(sizeof(uint8_t) * N/8);
+    for (int i = 0; i < N/8; i++) {
         reverse_mask[i] = reverse_byte(mask[i]);
     }
     std::chrono::time_point<std::chrono::steady_clock> start_clock = std::chrono::steady_clock::now();

@@ -66,9 +66,9 @@ __global__ void kernel_3pass_pssskip(uint32_t* pss, uint32_t* pss_total, uint32_
 {
     *pss_total += pss[chunk_count-1];
 }
-void launch_3pass_pssskip(uint32_t* d_pss, uint32_t* d_pss_total, uint32_t chunk_count)
+void launch_3pass_pssskip(cudaStream_t stream, uint32_t* d_pss, uint32_t* d_pss_total, uint32_t chunk_count)
 {
-    kernel_3pass_pssskip<<<1,1>>>(d_pss, d_pss_total, chunk_count);
+    kernel_3pass_pssskip<<<1,1,0,stream>>>(d_pss, d_pss_total, chunk_count);
 }
 
 __global__ void kernel_3pass_pss_gmem_monolithic(uint32_t* pss, uint8_t depth, uint32_t chunk_count, uint32_t* out_count)
