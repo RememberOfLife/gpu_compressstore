@@ -225,8 +225,12 @@ __global__ void kernel_3pass_proc_true_striding(
     uint32_t* popc,
     uint32_t chunk_length,
     uint32_t chunk_count,
-    uint32_t chunk_count_p2)
+    uint32_t chunk_count_p2,
+    uint32_t* offset)
 {
+    if (offset != NULL) {
+        output += *offset;
+    }
     constexpr uint32_t WARPS_PER_BLOCK = BLOCK_DIM / CUDA_WARP_SIZE;
     __shared__ uint32_t smem[BLOCK_DIM];
     __shared__ uint32_t smem_out_idx[WARPS_PER_BLOCK];
@@ -314,27 +318,27 @@ void switch_3pass_proc_true_striding(
     switch (block_dim) {
         default:
         case 32: {
-                kernel_3pass_proc_true_striding<32, T, complete_pss><<<block_count, 32>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<32, T, complete_pss><<<block_count, 32>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2, NULL);
             }
             break;
         case 64: {
-                kernel_3pass_proc_true_striding<64, T, complete_pss><<<block_count, 64>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<64, T, complete_pss><<<block_count, 64>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2, NULL);
             }
             break;
         case 128: {
-                kernel_3pass_proc_true_striding<128, T, complete_pss><<<block_count, 128>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<128, T, complete_pss><<<block_count, 128>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2, NULL);
             }
             break;
         case 256: {
-                kernel_3pass_proc_true_striding<256, T, complete_pss><<<block_count, 256>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<256, T, complete_pss><<<block_count, 256>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2, NULL);
             }
             break;
         case 512: {
-                kernel_3pass_proc_true_striding<512, T, complete_pss><<<block_count, 512>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<512, T, complete_pss><<<block_count, 512>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2, NULL);
             }
             break;
         case 1024: {
-                kernel_3pass_proc_true_striding<1024, T, complete_pss><<<block_count, 1024>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2);
+                kernel_3pass_proc_true_striding<1024, T, complete_pss><<<block_count, 1024>>>(input, output, mask, pss, popc, chunk_length, chunk_count, chunk_count_p2, NULL);
             }
             break;
     }

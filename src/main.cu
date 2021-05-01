@@ -26,8 +26,9 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
     free(h_buffer);
 }
 
-void run_sandbox() {
-    benchmark_data<uint64_t> bdata(1<<29);
+void run_sandbox()
+{
+    benchmark_data<uint64_t> bdata(1<<17);
     uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
     uint32_t chunk_length = 1024;
     uint32_t chunk_count = bdata.count / chunk_length;
@@ -55,7 +56,7 @@ void run_sandbox() {
         // time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
         // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_mask, d_popc, 1024, bdata.count/1024);
         // time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
-        time += launch_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, 8);
+        time += launch_async_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, 8);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
         bdata.validate(bdata.count);
 

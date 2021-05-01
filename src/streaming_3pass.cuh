@@ -6,9 +6,106 @@
 
 #include "cuda_try.cuh"
 #include "kernels/kernel_3pass.cuh"
+#include "kernels/kernel_streaming_add.cuh"
 
 template <typename T>
-float launch_streaming_3pass(T* d_input, uint8_t* d_mask, T* d_output, uint64_t N, int stream_count) {
+float launch_async_streaming_3pass(T* d_input, uint8_t* d_mask, T* d_output, uint64_t N, int stream_count)
+{
+    if (stream_count < 1) {
+        stream_count = 1;
+    }
+    // only works for power of two streams
+    int p2_sc = 1;
+    while (p2_sc < stream_count) {
+        p2_sc *= 2;
+    }
+    stream_count = p2_sc;
+
+    uint32_t chunk_length = 1024;
+    uint32_t chunk_count = N / chunk_length;
+    uint32_t max_chunk_count = N / 32;
+    uint32_t* d_pss;
+    CUDA_TRY(cudaMalloc(&d_pss, max_chunk_count*sizeof(uint32_t)));
+    uint32_t* d_popc;
+    CUDA_TRY(cudaMalloc(&d_popc, max_chunk_count*sizeof(uint32_t)));
+
+    uint32_t* d_pss_totals;
+    CUDA_TRY(cudaMalloc(&d_pss_totals, sizeof(uint32_t)*(stream_count+1)));
+    CUDA_TRY(cudaMemset(d_pss_totals, 0x00, sizeof(uint32_t)*(stream_count+1)));
+
+    cudaStream_t* streams = (cudaStream_t*)malloc(sizeof(cudaStream_t)*stream_count);
+    cudaEvent_t* events = (cudaEvent_t*)malloc(sizeof(cudaEvent_t)*stream_count);
+    for (int i = 0; i < stream_count; i++) {
+        CUDA_TRY(cudaStreamCreate(&(streams[i])));
+        CUDA_TRY(cudaEventCreate(&(events[i])));
+    }
+
+    uint64_t elems_per_stream = N / stream_count;
+    uint64_t bytes_per_stream = elems_per_stream / 8;
+    uint64_t chunks_per_stream = elems_per_stream / chunk_length;
+    uint64_t chunks1024_per_stream = elems_per_stream / 1024;
+
+    uint32_t chunk_count_p2 = 1;
+    while (chunk_count_p2 < chunks_per_stream) {
+        chunk_count_p2 *= 2;
+    }
+
+    uint32_t chunk_length32 = chunk_length / 32;
+    int popc1_threadcount = 1024;
+    int popc1_blockcount = (chunk_count/popc1_threadcount)+1;
+    int popc2_threadcount = 1024;
+    int popc2_blockcount = (chunk_count/popc2_threadcount)+1;
+    const int proc_threadcount = 1024;
+    int proc_blockcount = chunk_count/1024;
+    if (proc_blockcount < 1) {
+        proc_blockcount = 1;
+    }
+
+    std::chrono::time_point<std::chrono::steady_clock> start_clock = std::chrono::steady_clock::now();
+    
+    for (int i = 0; i < stream_count; i++) {
+
+        // launch popc for i
+        kernel_3pass_popc_none_monolithic<<<popc1_blockcount, popc1_threadcount, 0, streams[i]>>>(d_mask+bytes_per_stream*i, d_pss+chunks_per_stream*i, chunk_length32, chunks_per_stream);
+        // launch pss for i
+        launch_cub_pss(streams[i], 0, 0, d_pss+chunks_per_stream*i, d_pss_totals+i+1, chunks_per_stream);
+        // if i > 0: launch extra: add previous d_pss_total to own output
+        if (i > 0) {
+            launch_streaming_add_pss_totals(streams[i], d_pss_totals+i-1, d_pss_totals+i);
+        }
+        // record event i
+        CUDA_TRY(cudaEventRecord(events[i], streams[i]));
+        // launch optimization popc 1024 for i
+        kernel_3pass_popc_none_monolithic<<<popc2_blockcount, popc2_threadcount, 0, streams[i]>>>(d_mask+bytes_per_stream*i, d_popc+chunks1024_per_stream*i, 1024/32, chunks1024_per_stream);
+        // if i > 0: wait for event i-1
+        if (i > 0) {
+            CUDA_TRY(cudaStreamWaitEvent(streams[i], events[i-1]));
+        }
+        // launch optimized writeout proc for i using d_pss_total at i as offset from output
+        kernel_3pass_proc_true_striding<proc_threadcount, T, true><<<proc_blockcount, proc_threadcount, 0, streams[i]>>>(d_input+elems_per_stream*i, d_output, d_mask+bytes_per_stream*i, d_pss+chunks_per_stream*i, d_popc+chunks1024_per_stream*i, chunk_length, chunks_per_stream, chunk_count_p2, d_pss_totals+i);
+        
+    }
+    
+    CUDA_TRY(cudaDeviceSynchronize());
+    std::chrono::time_point<std::chrono::steady_clock> stop_clock = std::chrono::steady_clock::now();
+    
+    for (int i = 0; i < stream_count; i++) {
+        CUDA_TRY(cudaEventDestroy(events[i]));
+        CUDA_TRY(cudaStreamDestroy(streams[i]));
+    }
+    free(events);
+    free(streams);
+
+    CUDA_TRY(cudaFree(d_pss_totals));
+    CUDA_TRY(cudaFree(d_popc));
+    CUDA_TRY(cudaFree(d_pss));
+
+    return static_cast<float>(std::chrono::duration_cast<std::chrono::nanoseconds>(stop_clock-start_clock).count()) / 1000000;
+}
+
+template <typename T>
+float launch_sync_streaming_3pass(T* d_input, uint8_t* d_mask, T* d_output, uint64_t N, int stream_count)
+{
     if (stream_count < 1) {
         stream_count = 1;
     }
@@ -94,6 +191,10 @@ float launch_streaming_3pass(T* d_input, uint8_t* d_mask, T* d_output, uint64_t 
         CUDA_TRY(cudaStreamDestroy(streams[i]));
     }
     free(streams);
+
+    CUDA_TRY(cudaFree(d_pss_totals));
+    CUDA_TRY(cudaFree(d_popc));
+    CUDA_TRY(cudaFree(d_pss));
 
     return static_cast<float>(std::chrono::duration_cast<std::chrono::nanoseconds>(stop_clock-start_clock).count()) / 1000000;
 }
