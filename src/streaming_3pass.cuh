@@ -9,10 +9,15 @@
 
 template <typename T>
 float launch_streaming_3pass(T* d_input, uint8_t* d_mask, T* d_output, uint64_t N, int stream_count) {
-
     if (stream_count < 1) {
         stream_count = 1;
     }
+    // only works for power of two streams
+    int p2_sc = 1;
+    while (p2_sc < stream_count) {
+        p2_sc *= 2;
+    }
+    stream_count = p2_sc;
 
     uint32_t chunk_length = 1024;
     uint32_t chunk_count = N / chunk_length;

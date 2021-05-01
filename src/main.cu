@@ -42,7 +42,7 @@ void run_sandbox() {
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
 
     std::cout << "setup\n";
-    
+
     CUDA_TRY(cudaFree(d_pss_total));
     CUDA_TRY(cudaFree(d_popc));
     CUDA_TRY(cudaFree(d_pss));
