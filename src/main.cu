@@ -42,20 +42,20 @@ void run_sandbox() {
     CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
 
     std::cout << "setup\n";
-
+    
     CUDA_TRY(cudaFree(d_pss_total));
     CUDA_TRY(cudaFree(d_popc));
     CUDA_TRY(cudaFree(d_pss));
 
     float time = 0;
-    int c = 1;
+    int c = 10;
     for (int i = 0; i < c; i++) {
 
-        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_popc, 1024, bdata.count/1024);
+        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_mask, d_pss, chunk_length, chunk_count);
         // time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
-        // time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
-        time += launch_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, 2);
+        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_mask, d_popc, 1024, bdata.count/1024);
+        // time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        time += launch_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, 8);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
         bdata.validate(bdata.count);
 

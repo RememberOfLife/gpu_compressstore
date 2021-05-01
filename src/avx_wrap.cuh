@@ -110,7 +110,7 @@ float launch_avx_compressstore(T* input, uint8_t* mask, T* output, uint64_t N) {
     template_type_switch<T>::process(input, reverse_mask, output, N);
     std::chrono::time_point<std::chrono::steady_clock> stop_clock = std::chrono::steady_clock::now();
     free(reverse_mask);
-    return std::chrono::duration_cast<std::chrono::milliseconds>(stop_clock-start_clock).count();
+    return static_cast<float>(std::chrono::duration_cast<std::chrono::nanoseconds>(stop_clock-start_clock).count()) / 1000000;
 }
 
 #endif
