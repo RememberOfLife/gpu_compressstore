@@ -49,20 +49,20 @@ void run_sandbox()
     int c = 10;
     for (int i = 0; i < c; i++) {
 
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        time += launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, 0, 512, d_pss, chunk_count, d_pss_total);
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        time += launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, 0, 1024, d_pss, chunk_count, d_pss_total);
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
+        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        // time += launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, 0, 512, d_pss, chunk_count, d_pss_total);
+        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        // time += launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, 0, 1024, d_pss, chunk_count, d_pss_total);
+        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        // time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
         //time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_mask, d_popc, 1024, bdata.count/1024);
         //time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
-        //time += launch_async_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, 8);
-        //CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
-        //bdata.validate(bdata.count);
+        // time += launch_async_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, 8);
+        // CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        // bdata.validate(bdata.count);
 
     }
-    //std::cout << "time: " << time/c << "\n";
+    std::cout << "time: " << time/c << "\n";
 
     CUDA_TRY(cudaFree(d_pss_total));
     CUDA_TRY(cudaFree(d_popc));
@@ -98,7 +98,7 @@ int main()
     int cuda_dev_id = 0;
     CUDA_TRY(cudaSetDevice(cuda_dev_id));
 
-    run_sandbox();
+    //run_sandbox();
 
     std::ofstream result_data;
     result_data.open("result_data.csv");
@@ -116,9 +116,8 @@ int main()
     }
 
     // run extra bench excluding slow algos on 8GiB with other masks
-    //run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, 1<<30, MASKTYPE_UNIFORM, 0.5, false);
     //run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, 1<<30, MASKTYPE_ZIPF, 1.2, false);
-    //run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, 1<<30, MASKTYPE_BURST, 0.0001, false); / has streaks of ~107k same bits
+    //run_sized_benchmarks<uint64_t>(cuda_dev_id, result_data, 1<<30, MASKTYPE_BURST, 0.0001, false); // has streaks of ~107k same bits
     
     result_data.close();
 

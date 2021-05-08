@@ -165,7 +165,7 @@ void run_sized_benchmarks(int cuda_dev_id, std::ofstream& result_data, uint64_t 
     std::array<uint32_t, 5> stream_counts{2, 4, 8, 16, 32};
     for(int i = 0; i < RUNS_MEASURE; i++){
         for (auto stream_count : stream_counts) {
-            launch_async_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, stream_count);
+            time = launch_async_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, stream_count);
             CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, bdata.count*sizeof(T), cudaMemcpyDeviceToHost));
             if (!bdata.validate(onecount)) { time = -1; }
             result_data << (bdata.count*sizeof(T)) << ";" << bdata.p << ";async_streaming_3pass;1024;" << stream_count << ";1024;" << time << std::endl;
