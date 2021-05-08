@@ -12,6 +12,7 @@
 #include "cuda_try.cuh"
 #include "kernels/kernel_3pass.cuh"
 #include "kernels/kernel_singlethread.cuh"
+#include "streaming_3pass.cuh"
 
 #define RUNS_MEASURE 2
 
