@@ -180,7 +180,7 @@ float launch_sync_streaming_3pass(T* d_input, uint8_t* d_mask, T* d_output, uint
         if (i >= 0) {
             // optimization popc for 1024bit chunks
             kernel_3pass_popc_none_monolithic<<<popc2_blockcount, popc2_threadcount, 0, streams[i]>>>(d_mask+bytes_per_stream*i, d_popc+chunks1024_per_stream*i, 1024/32, chunks1024_per_stream);
-            kernel_3pass_proc_true_striding<proc_threadcount, T, true><<<proc_blockcount, proc_threadcount, 0, streams[i]>>>(d_input+elems_per_stream*i, d_output+out_count, d_mask+bytes_per_stream*i, d_pss+chunks_per_stream*i, d_popc+chunks1024_per_stream*i, chunk_length, chunks_per_stream, chunk_count_p2);
+            kernel_3pass_proc_true_striding<proc_threadcount, T, true><<<proc_blockcount, proc_threadcount, 0, streams[i]>>>(d_input+elems_per_stream*i, d_output+out_count, d_mask+bytes_per_stream*i, d_pss+chunks_per_stream*i, d_popc+chunks1024_per_stream*i, chunk_length, chunks_per_stream, chunk_count_p2, NULL);
         }
         out_count += h_pss_total;
     }
@@ -192,7 +192,7 @@ float launch_sync_streaming_3pass(T* d_input, uint8_t* d_mask, T* d_output, uint
     }
     free(streams);
 
-    CUDA_TRY(cudaFree(d_pss_totals));
+    CUDA_TRY(cudaFree(d_pss_total));
     CUDA_TRY(cudaFree(d_popc));
     CUDA_TRY(cudaFree(d_pss));
 
