@@ -1,0 +1,231 @@
+\documentclass{tudscrartcl}
+
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+
+\title{Tailoring Compressstore to GPU}
+\author{Urs Kober}
+
+% review highlighted text
+\usepackage{xcolor}
+\definecolor{review}{RGB}{221,33,114}
+\newcommand{\markr}[1]{\textcolor{review}{$\langle$#1$\rangle$}}
+
+\begin{document}
+	
+	%\maketitle
+	%\newpage
+	
+	\section*{Abstract}
+	
+	\section{Introduction}
+	
+		\markr{might be paragraphs}
+		
+		\subsection{Motivation}
+		
+			\begin{itemize}
+				\item Use to reduce problewm size aftert filter operation
+					\subitem e.g. databse filter
+					\subitem or even large scale datastreaming and filtering inbetween processing
+				\item Use as project operator for filtering out unwanted columns
+			\end{itemize}
+		
+		\subsection{Related Work}
+		
+			\begin{itemize}
+				\item ?
+			\end{itemize}
+		
+		\subsection{Goals}
+		
+			\begin{itemize}
+				\item create compressstore algorithm on nvidia gpus
+				\item tune for performance in general case and interesting cases (zipf/burst/pattern???)
+			\end{itemize}
+		
+	\section{Foundations}
+	
+		\begin{itemize}
+			\item introduces key concepts required to understand the work done
+			\item introduces existing approaches for both cpu and gpu
+		\end{itemize}
+	
+		\subsection{Compressstore}
+			\begin{itemize}
+				\item definition: consectuive storing of elements indicated by bitmask
+				\item parallelization not trivial, writeout location of each elem on count of previous elems (enabled 1 bits)
+				\item interesting special cases (acceleration potential):
+					\subitem very sparse and dense bitmasks
+					\subitem zipf masks as might spawn from an ordered group by query filter
+					\subitem burst masks as might spawn from an a tablescan over data with temporal dependency in the bitmask
+					\subitem patterned bitmask, as created by a project operation
+			\end{itemize}
+		
+		\subsection{CUDA}
+		
+			\subsubsection{Architecture}
+				\begin{itemize}
+					\item IMG of labeled gpu structure for overview
+					\item gpu is made up of
+						\subitem global memory
+							\subsubitem many memory controllers
+							\subsubitem a rather small L2 cache
+						\subitem pcie host interface
+						\subitem gigathread engine
+						\subitem many streaming multiprocessors (also clustered)
+					\item SM buildup
+						\subitem register file
+						\subitem shared memory
+						\subitem very small cache
+						\subitem warp schedulers (zero overhead scheduling)
+						\subitem many cuda cores
+						\subitem some load store units (mention queue)
+						\subitem some specialized units for raytracing and tensor operations
+				\end{itemize}
+			
+			\subsubsection{Execution Model}
+				\begin{itemize}
+					\item SIMT as gpu way of accelerating processing
+						\subitem every thread same instructions (masking out on branching)
+					\item warp/block/grid as gpu way of structuring threading
+					\item cpp extension and nvcc
+					\item kernels host code example
+					\item kernels device code example
+					\item streams for parallelizing kernels/work on gpu
+				\end{itemize}
+			
+		\subsection{AVX}
+			\begin{itemize}
+				\item idea of avx is SIMD
+				\item included with pretty much all modern cpus
+				\item useful because of usually better performance and power characteristics
+				\item short how to use avx512 for compressstore
+				\item mention that avx2 can reproduce this behaviour using a shuffle
+			\end{itemize}
+		
+		\subsection{cub}
+			\begin{itemize}
+				\item cub provides generalized reusable components for programming CUDA
+					\subitem e.g. sorting, reducing, compressstore and more
+				\item cub is fine tuned by nvidia engineers, so performance in the general cases can be expected to be very good
+			\end{itemize}
+		
+	\section{Analysis and Concepts}
+		\begin{itemize}
+			\item general problem for non-repeating bitmasks can be split in to 3 stages
+				\subitem popcount over chunks of the bitmask
+				\subitem (partial) prefix sum for the chunks
+				\subitem processing of chunks of input elements using the (partial) prefix sum
+			\item split into workable chunks because per element is not feasible
+				\subitem also reduces computation required by that factor
+			\item looking at the bitmask may spare lots of unneccessary operations in processing
+			\item repeating bitmasks (projection operation) can be optimized even further to trivial parallelism
+				\subitem writeout location is only dependant on input element location and bitmask pattern
+		\end{itemize}
+	
+		\subsection{Popcount}
+			\begin{itemize}
+				\item popc using intrinsic
+				\item writeout access pattern is very accomodating for the hardwares wider store sizes
+				\item for 1024 bit chunks, as required by the optimized writeout, this is chance to build a histogram to determine non-uniform distribution in $p=0.5$ bitmasks like zipf/burst
+			\end{itemize}
+		
+		\subsection{Prefix Sum Scan}
+			\begin{itemize}
+				\item each entry is sum of entries before it, start at 0
+				\item sketch of up and down sweep as reduction (with img)
+				\item up-sweep calcs partial prefix sum
+					\subitem only for positions at (increasing) powers of two
+					\subitem each entry sum includes only some previous entries
+						\subsubitem between the largest whole power of two that can fit inside it's own position
+						\subsubitem and the position itself
+				\item down-sweep calc final prefix sum for all elements
+					\subitem by distributing the partial prefix sums to all non power of two positions
+			\end{itemize}
+		
+			\subsubsection{Up-Sweep Reduction}
+				\begin{itemize}
+					\item kernel algo upsweep uses increasing power of two indices and stride
+						\subitem acts like a reduction on the chunk entries
+					\item out-of-bounds handling for non powers of two
+						\subitem if adding of left and right value goes over power of two border
+						\subitem i.e. right element non-ex. $\rightarrow$ store output into extra storage space
+					\item global memory reduction performs this ld(chunk count) times over the entries
+				\end{itemize}
+			
+			\subsubsection{Down-Sweep Collection}
+				\begin{itemize}
+					\item concrete chunk prefix sum is calculated by collecting select partial prefix sums to include
+					\item performed for every chunk
+						\subitem nearby chunks share many of the same partial prefix sums to include
+						\subitem writeout also accomodates for wide stores
+				\end{itemize}
+			
+		\subsection{Writeout}
+			\begin{itemize}
+				\item naive approach, using thread per chunk processing
+					\subitem memory access pattern quickly overloads load/store unit queue
+				\item 1024 element striding has efficient memory access pattern
+					\subitem intra-warp synchronization over writeout location using smem mask popc
+					\subitem no inter-warp sync required
+					\subitem may skip loading entirely if chunk popc is 0
+					\subitem whether or not to calculate the extra 1024chunk popc can be determined after pss
+						\subsubitem known in advance if 1024chunk popc is worth it
+						\subsubitem without using a histogram, $p=0.5$ masks like zipf/burst can not be detected early
+				\item for patterned bitmasks this would be the only kernel using a trivial writeout
+			\end{itemize}
+		
+		\subsection{Streaming}
+			\begin{itemize}
+				\item streaming has to accomodate for the dependency of writeout on the prefix sum
+					\subitem each chunk needs its own prefix sum complete before writeout can begin
+				\item only the popc and prefix sum can be parallelized away
+				\item using cuda events the dependencies can be made into on device sync barriers
+			\end{itemize}
+		
+		\subsection{Summary}
+		
+			\begin{itemize}
+				\item split problem into chunks to make it more managable
+				\item general problem can be split into 3 stages: popc/pss/proc
+				\item sparse bitmasks can be accelerated by skipping some proccessing chunks
+			\end{itemize}
+		
+	\section{Evaluation}
+	
+		\subsection{Experimental Setup}
+			\begin{itemize}
+				\item gpu used: rtx quadro 8000
+				\item kernels tested individually using cuda events before and after them
+				\item kernels tested: list them all
+					\subitem where applicable grid/block dim variations and chunklength as well
+				\item also streaming, but with fixed chunklength and grid/block dims as best-in-class
+				\item baselines are:
+					\subitem cpu singlethread
+					\subitem cpu avx512
+					\subitem gpu singlethread
+					\subitem cub
+			\end{itemize}
+		
+		\subsection{Benchmark Results}
+			\begin{itemize}
+				\item algo testing front to back uses packages, adding up the best-in-class component algos that make it up
+				\item IMG logarithmic runtime over datasize for all approaches and sub-kernels
+				\item package throughput over p
+				\item dimensioning heatmap to show CUDA sweetspots
+				\item other bitmask patterns
+			\end{itemize}
+		
+		\subsection{Summary}
+		
+			\begin{itemize}
+				\item cub has better fine tuning to device architecture and performs slightly in the general case
+				\item sparsity in bitmasks can be exploited by 3pass to gain a significant acceleration over cub
+			\end{itemize}
+		
+	\section{Conclusion}
+	
+	\section{Future Work}
+	
+\end{document}
