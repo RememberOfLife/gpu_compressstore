@@ -12,6 +12,7 @@
 #include "streaming_3pass.cuh"
 #include "kernels/kernel_3pass.cuh"
 #include "kernels/kernel_copy_add.cuh"
+#include "kernels/kernel_pattern.cuh"
 #include "kernels/kernel_singlethread.cuh"
 
 template <typename T>
@@ -28,8 +29,10 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
 
 void run_sandbox()
 {
-    benchmark_data<uint64_t> bdata(1<<30);
-    uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
+    benchmark_data<uint64_t> bdata(1<<21);
+    uint32_t pattern = 0x356719CA;
+    pattern = 0xFFFFFFFF;
+    uint32_t onecount = bdata.generate_mask(MASKTYPE_PATTERN, 0.5, pattern, 32);
     uint32_t chunk_length = 1024;
     uint32_t chunk_count = bdata.count / chunk_length;
     uint32_t max_chunk_count = bdata.count / 32;
@@ -44,33 +47,32 @@ void run_sandbox()
 
     std::cout << "setup\n";
 
-
     float time = 0;
-    int c = 10;
+    int c = 1;
     for (int i = 0; i < c; i++) {
-
-        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 256, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        // time += launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, 0, 512, d_pss, chunk_count, d_pss_total);
-        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        // time += launch_3pass_pss_gmem(bdata.ce_start, bdata.ce_stop, 0, 1024, d_pss, chunk_count, d_pss_total);
-        // time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        // time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
-        //time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_mask, d_popc, 1024, bdata.count/1024);
-        //time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
-        // time += launch_async_streaming_3pass(bdata.d_input, bdata.d_mask, bdata.d_output, bdata.count, 8);
-        // CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
-        // bdata.validate(bdata.count);
-
+        time += launch_pattern_proc(bdata.ce_start, bdata.ce_stop, /*28*4*/1, /*256*/32, bdata.d_input, bdata.d_output, bdata.count, pattern, 32);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(onecount);
     }
-    std::cout << "time: " << time/c << "\n";
+    std::cout << "time pattern diy: " << time/c << "\n";
+
+    for (int i = 0; i < 40; i++) {
+        std::cout << "[" << i << "] i" << static_cast<uint16_t>(bdata.h_input[i]) << " v" << static_cast<uint16_t>(bdata.h_validation[i]) << " o" << static_cast<uint16_t>(bdata.h_output[i]) << "\n";
+    }
+    
+    time = 0;
+    for (int i = 0; i < c; i++) {
+        time += launch_cub_flagged_biterator(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss_total, bdata.count);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(onecount);
+    }
+    std::cout << "time pattern cub: " << time/c << "\n";
 
     CUDA_TRY(cudaFree(d_pss_total));
     CUDA_TRY(cudaFree(d_popc));
     CUDA_TRY(cudaFree(d_pss));
 
-    printf("done\n");
-    exit(0);
-
+    /*
     float min_time = -1;
     std::array<uint32_t, 6> thread_counts{32, 64, 128, 256, 512, 1024};
     std::array<uint32_t, 5> block_counts{0, 256, 1024, 2048, 4096};
@@ -88,6 +90,7 @@ void run_sandbox()
         }
     }
     std::cout << "min_time: " << min_time << "\n";
+    */
 
     printf("done\n");
     exit(0);
@@ -98,7 +101,7 @@ int main()
     int cuda_dev_id = 0;
     CUDA_TRY(cudaSetDevice(cuda_dev_id));
 
-    //run_sandbox();
+    run_sandbox();
 
     std::ofstream result_data;
     result_data.open("result_data.csv");

@@ -22,6 +22,7 @@ set(SOURCES
 
     src/kernels/kernel_3pass.cuh
     src/kernels/kernel_copy_add.cuh
+    src/kernels/kernel_pattern.cuh
     src/kernels/kernel_singlethread.cuh
     src/kernels/kernel_streaming_add.cuh
 )

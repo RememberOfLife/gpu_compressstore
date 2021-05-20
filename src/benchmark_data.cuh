@@ -14,6 +14,7 @@ enum MaskType {
     MASKTYPE_ZIPF = 1, // lots of 1s in the front thinning out quickly towards the back
     MASKTYPE_BURST = 2, // randomly placed bursts of 1s
     MASKTYPE_OFFSET = 3, // 1s with gaps of 0s: 1=101010..; 2=1001001..
+    MASKTYPE_PATTERN = 4,
 };
 
 template <typename T>
@@ -79,7 +80,7 @@ struct benchmark_data {
         free(h_input);
     }
 
-    uint32_t generate_mask(MaskType mtype, double marg)
+    uint32_t generate_mask(MaskType mtype, double marg, uint32_t pattern = 0, int pattern_length = 0)
     {
         p = marg;
         fast_prng rng(42);
@@ -155,6 +156,18 @@ struct benchmark_data {
                         }
                     }
                     reinterpret_cast<uint8_t*>(h_mask)[i] = (invert ? ~acc : acc);
+                }
+            }
+            break;
+        case MASKTYPE_PATTERN: {
+                for (int i = 0; i < count/8; i++) {
+                    uint8_t acc = 0;
+                    for (int j = 7; j >= 0; j--) {
+                        if ((pattern>>((i*8+j)%pattern_length))&0b1) {
+                            acc |= (1<<j);
+                        }
+                    }
+                    reinterpret_cast<uint8_t*>(h_mask)[i] = acc;
                 }
             }
             break;
