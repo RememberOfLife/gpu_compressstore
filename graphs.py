@@ -36,8 +36,8 @@ algo_colors = {
     "cpu": "lightcoral",
     # packages
     "3pass_fproc_true_sa": "dodgerblue",
-    "3pass_fproc_true_cub": "deepskyblue",
-    "3pass_pproc_true_cub": "limegreen",
+    "3pass_pproc_true_sa": "deepskyblue",
+    "3pass_fproc_true_cub": "limegreen",
     "3pass_pss_gmem_full": "crimson",
 }
 
@@ -60,8 +60,8 @@ algo_markers = {
     "cpu": ".",
     # packages
     "3pass_fproc_true_sa": "X",
+    "3pass_pproc_true_sa": "x",
     "3pass_fproc_true_cub": "x",
-    "3pass_pproc_true_cub": "x",
     "3pass_pss_gmem_full": "+",
 }
 
@@ -193,8 +193,8 @@ def dg_package_throughput_over_datasize(data, outdirpath, filename, p):
         "cub_flagged_biterator": ["cub_flagged_biterator"],
         "cub_flagged_bytemask": ["cub_flagged_bytemask"],
         "3pass_fproc_true_sa": ["3pass_popc_none", "3pass_popc_none", "3pass_pss_gmem", "3pass_pss2_gmem", "3pass_fproc_true"],
+        "3pass_pproc_true_sa": ["3pass_popc_none", "3pass_popc_none", "3pass_pss_gmem", "3pass_pproc_true"],
         "3pass_fproc_true_cub": ["3pass_popc_none", "3pass_popc_none", "cub_pss", "3pass_fproc_true"],
-        "3pass_pproc_true_cub": ["3pass_popc_none", "3pass_popc_none", "cub_pss", "3pass_pproc_true"],
         "async_streaming_3pass": ["async_streaming_3pass"],
         #"cub_pss": ["3pass_popc_none", "cub_pss"],
         #"3pass_pss_gmem_full": ["3pass_popc_none", "3pass_pss_gmem", "3pass_pss2_gmem"],
@@ -281,8 +281,8 @@ def dg_package_throughput_over_chunklength(data, outdirpath, filename, p):
         "cub_flagged_biterator": ["cub_flagged_biterator"],
         "cub_flagged_bytemask": ["cub_flagged_bytemask"],
         "3pass_fproc_true_sa": ["3pass_popc_none", "3pass_popc_none", "3pass_pss_gmem", "3pass_pss2_gmem", "3pass_fproc_true"],
+        "3pass_pproc_true_sa": ["3pass_popc_none", "3pass_popc_none", "3pass_pss_gmem", "3pass_pproc_true"],
         "3pass_fproc_true_cub": ["3pass_popc_none", "3pass_popc_none", "cub_pss", "3pass_fproc_true"],
-        "3pass_pproc_true_cub": ["3pass_popc_none", "3pass_popc_none", "cub_pss", "3pass_pproc_true"],
         "async_streaming_3pass": ["async_streaming_3pass"],
     }
     for package in packages.keys():
@@ -359,8 +359,8 @@ def dg_package_throughput_over_p(data, outdirpath, filename, throughput):
         "cub_flagged_biterator": ["cub_flagged_biterator"],
         "cub_flagged_bytemask": ["cub_flagged_bytemask"],
         "3pass_fproc_true_sa": ["3pass_popc_none", "3pass_popc_none", "3pass_pss_gmem", "3pass_pss2_gmem", "3pass_fproc_true"],
+        "3pass_pproc_true_sa": ["3pass_popc_none", "3pass_popc_none", "3pass_pss_gmem", "3pass_pproc_true"],
         "3pass_fproc_true_cub": ["3pass_popc_none", "3pass_popc_none", "cub_pss", "3pass_fproc_true"],
-        "3pass_pproc_true_cub": ["3pass_popc_none", "3pass_popc_none", "cub_pss", "3pass_pproc_true"],
         "async_streaming_3pass": ["async_streaming_3pass"],
     }
     for package in packages.keys():
