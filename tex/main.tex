@@ -53,7 +53,7 @@
 	
 		\section{Compressstore}
 			\markr{IMG for comrpessstore / flagged / left packing}\\
-			The compressstore operation is used to store elements of a vector for which there is a bit enabled in a corresponding bitmask, consecutively in memory, leaving no spaces for the masked out elements. This operation will always output a vector of length less then or equal to the input vector. \\
+			\markr{possibly rephrase, input is reduced to contigous array using a bitmask} The compressstore operation is used to store elements of a vector for which there is a bit enabled in a corresponding bitmask, consecutively in memory, leaving no spaces for the masked out elements. This operation will always output a vector of length less then or equal to the input vector. \\
 			Even though not all applications of this operation require the same assumptions, in this work a few common ones are made.
 			\begin{itemize}
 				\item The input vector of elements may not be overwritten.
@@ -110,7 +110,7 @@
 				\markr{kernels device code example}\\
 			
 		\section{AVX}
-			Advanced Vector Extensions (AVX) are SIMD extensions to the x86 instruction set architecture supported by many modern CPUs. AVX instructions are essentially hardware acceleration features for operations that otherwise require multiple non-AVX instructions. \\
+			Advanced Vector Extensions (AVX) are SIMD extensions to the x86 instruction set architecture supported by many modern CPUs. AVX instructions are essentially hardware acceleration features for operations that otherwise require multiple non-AVX instructions. The idea of this vector processing is to execute a given operation on all elements of a fixed size vector at once. Larger problems can usually be broken down into smaller vectors that can be processed by AVX and similar vector processing instructions. \\
 			Data for these operations has to be provided in special AVX registers, and is then transformed according to the used instruction in a single operation. This may take multiple clock cycles, but is usually faster than performing the operation sequentially for the inputs using normal instructions. Additionally, due to the hardware specialization, using AVX instructions may yield a better power usage profile. \\
 			
 			The AVX-512 extensions extend the existing AVX2 extensions from 256-bit to 512-bit vector lengths and introduce many new characteristics and instructions. Using the new AVX-512 vpcompress instructions performs a compressstore operation on the input vector, assuming input element sizes of different lengths, using a bitmask provided in another AVX register. \\
@@ -120,6 +120,8 @@
 		\section{CUB}
 			CUB is a library of reusable components for programming CUDA devices. It provides features for sorting, reducing, performing prefix scans, histogram creation and also a compressstore. \\
 			The algorithms used in the CUB components have been fine tuned for usage with many different CUDA GPUs, and are specialized for operation not only device wide, but also spanning just a warp or block. \\
+			
+			The kernel used by CUB to perform the compressstore operation is designed to only schedule one wave of blocks to the device. That is, there are enough blocks to fill the device, but no additional blocks waiting to be scheduled onto an SM. This ensures that all synchronization can be done at runtime on the device, instead of relying on multiple kernel launches to synchronize dependency chains. \\
 		
 	\chapter{Analysis and Concepts}
 		The general compressstore problem can be split into three smaller sequential partial tasks. The first two of which only perform action on the bitmask and intermediate constructs, to enable simple parallelization of the actual writeout task, which touches the most data. \\
@@ -217,7 +219,7 @@
 		\section{Experimental Setup}
 			All implementations have been tested on a RTX Quadro 8000 GPU, installed on a server provided by the chair of database theory, running a linux operating system. This GPU has 72 SMs and 48GB of GDDR6 global memory with a theoretical bandwidth of about 672 GB/s. \markr{REF} \\
 			
-			To individually test the developed kernels, ignoring any PCIe data transfer times, cuda events were used. Placing one event just before, and another just after the kernel launch, allows precise timing of runtime on the GPU. Where possible, grid- and block-dimensions as well as chunklength were varied. The tested kernels are:\\
+			To individually test the developed kernels, ignoring any PCIe data transfer times, CUDA events were used. Placing one event just before, and another just after the kernel launch, allows precise timing of runtime on the GPU. Where possible, grid- and block-dimensions as well as chunklength were varied. The tested kernels are:\\
 			\begin{itemize}
 				\item Popcount kernel (\texttt{3pass\_popc\_none})
 				\item Partial prefix sum kernel over all required depths, using global memory (\texttt{3pass\_pss\_gmem})
@@ -257,29 +259,36 @@
 			\item other bitmask patterns
 		\end{itemize}
 	
-		\markr{IMG log runtime over datasize for all parts} \\
+		\markr{IMG log runtime over datasize for all parts}\\
+		
+		\markr{some parts of this may fit better into the analysis sections}\\
+	
+		Both CPU based approaches, as well as the GPU based \texttt{single\_thread}, performed at all times worse than all other kernels that properly utilize the GPU's parallelism. \\
 	
 		\section{Popcount}
 			The popcount kernel takes up relatively little runtime in the total compressstore operation. Because there is no comparison for it and the performed actions are simple, the runtime can be considered almost negligable. \\
 			The memory access pattern for the chunkwise writeout of the popcount result deliberately accomodates for the GPUs preferrence towards larger width load/store transactions. \\
 			
-			\markr{TODO must test 8 byte popc vs 4 byte, breaks 32bit chunks unfortunately}
+			\markr{TODO must test 8 byte popc vs 4 byte, breaks 32bit chunks unfortunately}\\
 			
-			There are nevertheless interesting observations that can be made by looking at a heatmap of the popcount kernel runtime over both the grid- and block-dimensioning. \markr{show gpu wave fitting for right amount of processing using the heatmap pattern} \\
+			\markr{IMG heatmap uniform p0.5 popc 8GB}\\
 			
-			\subparagraph{Further experimentation} on this kernel may be targeted towards increasing the usage efficiency of the LSU and also by using a single wave approach to block scheduling. \\
+			The above heatmap shows the runtime of the popcount kernel in ms, varying over some powers of two for both grid- and block-dimensioning. A slight saturation wave pattern is visible, showing that there is an optimal range of threads per SM at which the algorithm performs best. The pattern is visible as a diagonal line because both axes are logarithmic with the base two. \\
+			Using less block and/or threads per block degrades performance substantially, as the device can not be saturated, and latencies can not be hidden. Using too high dimensioning the performance drops again, even if very subtly, due to increased scheduling effort with no benefit. \\
+			The most interesting observation to be made is the relatively large drop in performance when using 1024 threads per block instead of a lower power of two. The Nsight Compute report showed the difference between these to be an almost 60\% worse L1 cache hit rate from 1024 threads per block version compared to the 512 dimensioning. The dramatically decreased hit rate also caused the LSU transaction queue to fill more frequently, stalling the SM for much longer, leading to yet again decreased performance. \\
+			
+			\subparagraph{Further experimentation} on this kernel may be targeted towards increasing the usage efficiency of the LSU. \\
 			
 			In its current form the popcount kernel loads for every thread, data from a different chunk. With older GPUs this results in the LSU loading larger widths of data than are actually required. In the best case, this extra loaded data could then be reused from cache when each thread gets to processing its next few elements. Unfortunately GPU caches, especially the L1 caches inside the SMs are very small, especially when compared to their CPU counterparts. Due to the low computational requirements of each kernel, lots of threads will be alive per SM. This will likely cause many L1 cache misses, leading to even more unneccessary loads. \\
 			On more modern GPUs, the LSUs may perform smaller width loads of down to only 32 bytes each. This may alleviate some of the cache issues, however due to the many threads alive, the LSU's queue of transactions can quickly fill up and cause actual stalling of the SM, while threads wait for the queue to empty again. \\
 			One way to reduce the impact of this issue would be to perform adjecent loads using all 32 threads of a warp, and process consecutive chunks by sliding the window of popcounting threads over them. The little synchronization required to collect the results from every thread can easily be hidden by the many memory transactions of other threads. \\
 			\markr{either test this myself to make a point, or put the nsight compute report in here to show that this very memory bound} \\
 			
-			\markr{single wave approach, any content worth talking?}
 		
 		\section{Prefix Sum Scan}
 			Just like the popcount kernel, the two phase prefix sum scan, and especially the up-sweep phase take up very little of the total runtime of the compressstore operation. Additionally, both phases work only on the prefix sum buffer, which only has one entry per chunk. As chunklength increases, the amount of data touched to perform the prefix sum drop dramatically. Both phases work solely on global memory. \\
 		
-			\markr{comp against cub?}
+			\markr{comp against cub? show that package dont vary much with cub vs sa, only in writeout segment with the package image}
 		
 			\subsection{Up-Sweep Reduction}
 				Due to the large offset and stride of the elements accessed by each thread, there is no pattern to coalesce memory transactions into, resulting in lots of unneccessary data loaded. This kernel is again very memory bound by the many transactions performed, as there is also very little computation happening. \\
@@ -290,22 +299,46 @@
 				The down-sweep phase of the prefix sum uses the special method explained in \markr{REF} to compute a per chunk final prefix sum, using the partial data from the up-sweep phase. The writeout pattern of the prefix sum result per chunk is as large as possible, accomodating again, the GPUs prefference towards larger width memory transactions. \\
 				Using this approach the data loaded to compute the prefix sum for every chunk introduces uneccessarily loaded bytes. However, the result of a load can, because adjacent threads process adjacent chunks, almost always be used by an entire warp of threads simultaneously. In the best case, other threads of the same block may reuse the data from the L1 cache. This is because for many of the depth iterations in the algorithm, the sub trees fitted into the target chunk position are shared for all of the threads chunks. \\
 				
-				This kernel touches even less data then the up-sweep phase, and has an even lower runtime. Even though both phases operate only on global memory, any gains by modifying them to use shared memory, are negligable due to their low runtime contribution to the total package.
+				This kernel touches even less data then the up-sweep phase, and has an even lower runtime. Even though both phases operate only on global memory, any gains by modifying them to use shared memory, are negligible due to their low runtime contribution to the total package.
 		
 		\section{Writeout}
+			The writeout kernels take up by far the largest amount of runtime of any compressstore package. Considering the very small impact of both the popcount and prefix sum kernels, this section compares packages against each other.
+			
+			\markr{IMG package runtime over p}\\
+			\markr{TODO fix \^ IMG x axis captions to be p not datasize}\\
+			
+			As mentioned in the analysis of the writeout kernel, the naive chunks per thread implementation has a much worse memory access pattern than the optimized chunk per threads kernel. The measured impact of this is a roughly 10 fold increase in runtime. No package using the naive approach is shown above, as it would only degrade the ability to compare the optimized version with CUB. \\
+			
+			The graph \mark{REF} clearly shows the 1024 zero bit optimization working very well to drastically reduce the runtime for lower $p$ values. In the more dense ranges of $0.5$ and upward, the CUB algorithm performs slightly more favorably, taking only a few milliseconds less runtime. \\
+			
+			Between the stand-alone prefix sum and using the optimized CUB functionality, there is barely a noticable difference in package runtime. This holds true for full and partial processing, the latter saving in theory a few more calculations and memory loads. \\
+			
+			Regarding $p$ values around $0.5$ and higher, performance for the \texttt{3pass\_proc\_true} packages is very near that of CUB. One possible reason for the developed algorithm to still perform worse may lie in the fact that there are at many times, especially near the $p=0.5$ value, many dormant threads in a warp per writeout pass. This is caused by the internal no synchronization principle of the algorithm, as explained in \markr{REF analysis}. \\
+			One possible way to avoid this would be the precomputation of all writeout positions using the bitmask from shared memory, requiring another 1-2KiB of register/shared memory storage per warp of a block. The increased maximum width writeout size for every warp writeout cycle may clear space in the LSU transaction queue and reduce related stalls. Additionally the precomputation of the writeout positions can provide oppertunity to hide latency of other memory operations, as otherwise this kernel is very memory bound and stalls dozens of cycles between issuing instructions. \\
+			
+			\markr{TABLE instead of img to show performance of zipf and burst compared to uniform for the 2 best of class scenarios}
+			
+			Optimizing runtime for 1024 bit long zero streaks works well on uniformly distributed bitmasks with very low $p$ values. However the $p$ value alone can only tell when this optimization will definitely improve performance, not rule out potential in itself. In the table above the runtime values for zipf and burst type bitmasks are given for the best performing CUB baseline, and the best performing \texttt{3pass} implementation. \\
+			Both the zipf and burst bitmask have a very high $p$ value, but they are not uniformly distributed, so they still score very high numbers of skippable 1024 zero bit streaks. \\
+			Performance for the burst mask is slightly higher than the zipf mask. Although this is implementation specific, the tested GPU schedules blocks with lower indices earlier, causing almost all non-skippable chunks to be processed first for the zipf mask and leaving almost only empty chunks leftover, which take a lot more computational resources than memory loads, due to the optimization. The burst mask does not always suffer this problem, due to the very long passages of only ones or only zeroes being distributed somewhat evenly across all chunks. This ensures there is always memory intensive writeout work, and computation focused skipping happening. \\
 		
 		\section{Streaming}
+			\markr{IMG packages over datasize at uniform p0.5}\\
+			The streaming compressstore package performs worse than any of the packages using the optimized writeout kernel. Because it itself profits from this kernel, on very low $p$ values, streaming still runs quicker than CUB. \\
+			The graph above shows that the streaming approach only starts maximizing its potential at around 1GiB of total data size. Various powers of two have been tried for the stream counts, every data point represents the best performing stream count at that position. \\
+			
+			The large performance loss for small datasizes is likely owing to the extra synchronization required to launch the kernels seperately on many streams. The CUDA events are placed in a way that they can be recorded and waited for on the GPU using no additonal host side processing. The small datasize of every streams portion of the total data causes large portions of the devices processing and memory power to remain unused. Most of the runtime is supposed to be used up during writeout, which has to synchronize with previous prefix sums. Per small portion alone there is just not enough work available to saturate the devices capabilities. \\
 		
 		\section{Summary}
-		
-			\begin{itemize}
-				\item cub has better fine tuning to device architecture and performs slightly in the general case
-				\item sparsity in bitmasks can be exploited by 3pass to gain a significant acceleration over cub
-			\end{itemize}
+			Overall the performance of the new hand crafted kernels matches that of CUB, the best baseline approach, very nearly in many cases. In tests involving very sparse bitmasks, or masks with ranges of low density, the performance of the developed packages is several times greater than that of CUB. \\
+			All CPU and GPU based single thread approaches perform much worse than both CUB or \texttt{3pass}. \\
+			
+			Some problematic areas of the \texttt{3pass} kernels have been identified, and possible starting points for future research are provided. \\
 		
 	\chapter{Conclusion}
 	
 		\section{Future Work}
+			\markr{Some of the future work parts are embedded into the evaluation section currently, where they fit much better and more naturally}
 	
 		\section{Related Work}
 	
