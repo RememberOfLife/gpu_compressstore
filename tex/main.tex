@@ -26,16 +26,16 @@
 		\placeofbirth{---}
 	}
 	\matriculationyear{2018}
-	%\supervisor{PD Dr.-Ing. habil. Dirk Habich \and Dipl.-Inf. Johannes Fett}
-	%\professor{Prof. Dr.-Ing. habil. Wolfgang Lehner}
+	\supervisor{Prof. Dr.-Ing. habil. Dirk Habich \and Dipl.-Inf. Johannes Fett}
+	\professor{Prof. Dr.-Ing. habil. Wolfgang Lehner}
 	\maketitle
 	%\confirmation
 	
 	\chapter*{Abstract}
 	
-	\chapter{Introduction}
+	\tableofcontents
 	
-		\markr{might be paragraphs}
+	\chapter{Introduction}
 		
 		\section{Motivation}
 		
@@ -45,15 +45,20 @@
 					\subitem or even large scale datastreaming and filtering inbetween processing
 				\item Use as project operator for filtering out unwanted columns
 				\item create compressstore algorithm on nvidia gpus
-				\item tune for performance in general case and interesting cases (zipf/burst/pattern???)
+				\item tune for performance in general case and interesting cases (zipf/burst/pattern?)
 			\end{itemize}
 		
 	\chapter{Foundations}
 		In this section we will introduce key concepts required to understand the work and its functioning. Specifically we start by defining the compressstore problem and its nuances, before providing a broad overview of the Nvidia CUDA GPU architecture and execution model as it was used to develop and compare the implementations. For usage as baseline comparisons we also briefly look at AVX and the existing CUB implementation.
 	
 		\section{Compressstore}
-			\markr{IMG for comrpessstore / flagged / left packing}\\
-			\markr{possibly rephrase, input is reduced to contigous array using a bitmask} The compressstore operation is used to store elements of a vector for which there is a bit enabled in a corresponding bitmask, consecutively in memory, leaving no spaces for the masked out elements. This operation will always output a vector of length less then or equal to the input vector. \\
+			\begin{figure}[!ht]
+				\centering
+				\includegraphics[width=0.9\linewidth]{./img/compressstore_operation.png}
+				\label{fig:compressstore_operation}
+				\caption{Visualized compressstore operation on a 16 element long data vector and bitmask. Any values of "Don't Care" elements in the output is not relevant to the operation.}
+			\end{figure}
+			The compressstore operation is used to store certain elements of an input vector contiguously in memory. Using the provided bitmask the operation only selects elements for writeout that have a corresponding enabled bit (set to one) in the bitmask. Potential gaps between enabled elements are removed, thereby left packing the results into the output. The length of the output vector will always be less than or equal to that of the input vector. \\
 			Even though not all applications of this operation require the same assumptions, in this work a few common ones are made.
 			\begin{itemize}
 				\item The input vector of elements may not be overwritten.
@@ -72,22 +77,26 @@
 			The overall density of a bitmask in terms of a ration $\frac{\text{one bit count}}{\text{total element count}}$ will be called $p$ in the rest of this work. It should be noted that this does not give any indication as to what distribution is present in the bitmask. A bitmask where the entirety of the second half of the bitmask is set to one bits and no others, will still yield $p=0.5$ just like a uniform random distribution might. \\
 		
 		\section{GPU Computing}
-		
 			\subsection{Architecture}
-				\markr{IMG of labeled GPU architecture for overview}\\
+				\begin{figure}[!ht]
+					\centering
+					\includegraphics[width=0.95\linewidth]{./img/gpu_architecture.png}
+					\label{fig:gpu_architecture}
+					\caption{Simplified GPU architecture diagram. In reality the realtive position and size of many components frequently changes with each generation. Some parts are omitted for clarity. The actual number of cuda cores per streaming multiprocessor (SM) is higher in real devices.}
+				\end{figure}
 				GPUs have, as their name implies, been originally devised as a dedicated device for graphical computation workloads, especially in realtime scenarios. They have long since their inception also seen much use as accelerators for general purpose computing workloads, many of which benefit greatly from the high parallelism they provide. \\
 				Modern GPU architecture consists, across different hardware manufacturers, of mostly differently named but functionally very similar components, the basics of which are described here, to give a brief overview of the structures available to improve performance. \\
 				
-				Similar to the RAM of a processor, a typical Nvidia GPU has a global memory shared among all of its processing power \markr{TODO ALUs, Cuda Cores, SMs?}, even device intrinsic management functions. Between interactions of processing elements and the global memory is an L2 cache and multiple memory controllers. \\
+				Similar to the RAM of a processor, a typical Nvidia GPU has a global memory shared among all of its processing power, even device intrinsic management functions. Between interactions of processing elements and the global memory is an L2 cache and multiple memory controllers. \\
 				Communication with the host is performed through the PCIe host interface. \\
 				
 				The compute unified device architecture (CUDA) of all recent Nvidia GPUs allows generalisations about the design of the GPUs processing power, helping developers easier target multiple devices with fine tuned applications. \\
 				
-				When executing code on the GPU, several parallel and concurrent threads all execute the same code. Discernible difference for accessing inputs and outputs is provided solely through a running count across all threads of a workload. \markr{TODO SIMT allows true branches, even though at the hardware level it still just masks out branches like SIMD does} \\
+				When executing code on the GPU, several parallel and concurrent threads all execute the same code. Discernible difference for accessing inputs and outputs is provided solely through a running count across all threads of a workload. More on this and the use of branches in \ref{sec:gpu_execution_model}. \\
 				When launching a kernel (the workload) that is meant to run on the GPU, the user specifies a number of blocks (grid dimension) and a number of threads per block (block dimension) for the GPU to launch. \\
-				Scheduling of blocks on the GPU is managed by the Gigathread engine, specially designed to handle the immensely parallel tasks assigned to GPUs. It distributes the outstanding blocks of running kernels onto the many streaming multiprocessors \markr{is this still the first mention of SMs?} of the GPU, which is the key structure of processing, of which several dozens can be found in modern devices. When a block of threads is assigned to an SM, the threads it contains are grouped into warps of 32 each. \\
+				Scheduling of blocks on the GPU is managed by the GigaThread engine, specially designed to handle the immensely parallel tasks assigned to GPUs. It distributes the outstanding blocks of running kernels onto the many streaming multiprocessors (SMs) of the GPU, which is the key structure of processing, of which several dozens can be found in modern devices. When a block of threads is assigned to an SM, the threads it contains are grouped into warps of 32 each. \\
 				
-				\markr{Whole par +cores? ordered before thread} An SM \markr{first mention need full text?} contains many so called CUDA cores, which are the real execution units used by warps running on the SM. Every thread alive on an SM has its own registers in a very large register file that serves the entire SM. To distribute the work that threads want to perform across the CUDA cores the SM uses several warp schedulers, that assign a whole warp of threads to execution units respective of the instruction that is being executed. \\
+				An SM contains many so called CUDA cores, which are the real execution units used by warps running on the SM. Every thread alive on an SM has its own registers in a very large register file that serves the entire SM. To distribute the work that threads want to perform across the CUDA cores the SM uses several warp schedulers, that assign a whole warp of threads to execution units respective of the instruction that is being executed. \\
 				Because every thread has effectively its own register file, there is a zero overhead scheduling of warps in every SM. As long as there are warps available to schedule, i.e. warps that have instructions for which there are currently available execution units in the SM, the warp schedulers issue the warps to their execution units between cycles, such that in every cycle actual work gets done. \\
 				
 				The CUDA cores available in every SM vary across different GPUs and GPU architecture generations, but in general there are many integer and floating point arithmetic units available, with a small number of specialized units available for computing tensor or raytracing operations as well as several hardware accelerated math functions. \\
@@ -96,11 +105,12 @@
 				Memory performance intensive applications that issue a lot of read/write instructions to the load store units (LSU) may quickly suffer of warps stalling due to a reached pipeline limit for the amount of operations in transit per LSU, especially if the widths of memory accesses are smaller, which leads to less coalesced memory accesses and therefore more individual transactions. \\
 			
 			\subsection{Execution Model}
+				\label{sec:gpu_execution_model}
 				As touched on in the architecture section, all threads of a kernel execute the same code. In the case of CUDA this is written using a C++ extension and the nvcc compiler provided by Nvidia. Such a function, that is executed by all threads, is called a kernel. To create differentiation between threads, intrinsic values for the block number/dimension and thread number inside a block can be used together to create a global thread identification. \\
 				The grid and block dimensioning is not limited to one dimension, they can seperately be each up to three dimensional. \\
 				
 				Instructions are usually, excluding certain cases on newer devices, executed in lockstep for the entire warp at once. The single instruction multiple threads (SIMT) model of execution functions as a natural, more parallel, progression from single instruction multiple data (SIMD) as it is used on many CPUs. \\
-				Branches in the code are serialized, and thus very time intensive. All threads not participating in a given branch perform NOOPs while the other threads execute. In excess this behaviour is called warp (execution) divergence and can cause large performance losses. \\
+				The SIMT model allows actual branching of code, contrary to the SIMD approach of only masking out operations of disabled elements during a vector operation. Branches in the code are serialized through branch predication, and thus very time intensive. All threads not participating in a given branch effectively perform NOPs while the other threads execute. In excess this behaviour is called warp (execution) divergence and can cause large performance losses. \\
 				
 				Kernel launches and other CUDA library functions, such as copying memory between the host and device may also accept a stream argument. By default these operations are serialized in the default stream. Using non-default streams they can be parallelized on the GPU, and furthermore partially synchronized using events that are triggered and waited for by streams. \\
 				Using streams may enable partial processing of data while copying the rest from the host side to the device still. Or when using events, enables dependencies between larger chains of kernel launches. \\
@@ -146,21 +156,22 @@
 			The popcount kernel uses a variable chunklength to perform a population count of (enabled) one bits over chunks of the input bitmask. The actual popcount operation is performed on unsigned 32-bit integers using a CUDA intrinsic function. \\
 			Each thread processes one chunk of the bitmask, while adjacent threads process adjacent chunks. The output of the popcount ensures large width memory accesses, because all threads store directly next to each other and at once. \\
 			
-			The writeout phase of the popcount kernel is also a good place to perform a rudimentary histogram creation if required. To distinguish between different distributions of the bitmask with the same $p$ near $0.5$. More on this in \markr{optimized writeout kernel ref}. \\
+			The writeout phase of the popcount kernel is also a good place to perform a rudimentary histogram creation if required. To distinguish between different distributions of the bitmask with the same $p$ near $0.5$. More on this in section \ref{sec:analysis_writeout} \\
 		
 		\section{Prefix Sum Scan}
 			The exclusive prefix sum as required, denotes for each chunk entry the sum of all entries before it. The exclusive prefix sum does not contain the own entry in the prefix sum for a given entry, so it starts at 0. \\
 			
-			\markr{IMG prefix sum up- ?and? down-sweep}
-			
-			As seen in the \markr{ref pss img}, the prefix sum scan can be split into two phases when parallelized. \\
-			When the upsweep reduction phase is imagined like a tree, every entry holds at the end, the inclusive prefix sum of the subtree that reduced to it. Because of the nature of the binary reduction, the inner nodes of the reduction tree correspond to repeating offsets at various powers of two. \\
-			The downsweep phase distributes the values of the upsweep, through the inner nodes, down into the leafs of the reduction tree, thereby creating the final exclusive prefix sum over all entries. \\
-		
-			\markr{inconsistent usage of up-sweep vs upsweep}\\
+			The prefix sum scan can be split into two phases when parallelized. The up-sweep reduction phase is imagined like a tree such as in figure \ref{fig:pss_up_sweep}. Every entry holds at the end, the inclusive prefix sum of the subtree that reduced to it. Because of the nature of the binary reduction, the inner nodes of the reduction tree correspond to repeating offsets at various powers of two. This is an intermediate product and only becomes useful through some form of down-sweep computation. \\
+			The down-sweep phase distributes the values of the up-sweep, through the inner nodes, down into the leafs of the reduction tree, thereby creating the final exclusive prefix sum over all entries. \\
 		
 			\subsection{Up-Sweep Reduction}
-				One launch of the upsweep reduction kernel, corresponds to one layer in the prefix sum reduction tree. The kernel is launched $\log_2(\text{total element count})$ times. \\
+				\begin{figure}[!ht]
+					\centering
+					\includegraphics[width=0.95\linewidth]{./img/pss_up_sweep.png}
+					\label{fig:pss_up_sweep}
+					\caption{Visualization of the up-sweep operation performed by the prefix sum. The left side represents normal operation on a vector with a power of two element count. The right represents adjusted operation to accomodate for non power of two vector sizes. Marked in red is the out of bounds storage location, holding at the end the total amount of one bits. Grayed out cells represent the theoretical power of two cells, no memory is allocated for them.}
+				\end{figure}
+				One launch of the up-sweep reduction kernel, corresponds to one layer in the prefix sum reduction tree. The kernel is launched $\log_2(\text{total element count})$ times. \\
 				To perform one layer of reduction, for every two consecutive tree nodes, their sum is stored in the location of the right node, which will correspond to the left node in the next layer. Growing with the increasing depth of the reduction, towards the root, are the offsets between \emph{adjacent} nodes, i.e. those that need to be summed. Starting at depth zero for the leaf nodes, increasing by one for every layer, the $n$-th left element can be found at index $(2n+1) \cdot 2^d -1$ for depth $d$. The adjacent right element is found $2^d$ elements further to the right. \\
 				
 				The above algorithm only works on chunk counts equal to a power of two. It can easily be adapted to work with any count of chunks by introducing two more checks. \\
@@ -168,35 +179,41 @@
 				There exists at most one pair of subtrees per depth layer, such that the left index exists and the right index is out of bounds. In this case, the value of the left subtree, and the right subtree (zero), can not be stored in the location of the right subtree, and is thus stored in a special out of bounds location, just for this case. Incidentally, after the algorithm is finished on a non power of two chunk count array, or is run again with depth increased by one on a power of two chunk count array, the resulting total number of one bits is stored in the out of bounds location. \\
 			
 			\subsection{Down-Sweep Collection}
-				The downsweep of the two phase prefix sum algorithm, functions essentially like a reverse reduction, distributing the partial prefix sum values from the inner nodes towards the leaf nodes. This is work efficient, as no operations are carried out multiple times without need. The expansion can be performed in place on the array of chunk entries and results in a concrete per chunk prefix sum value. \\
+				\label{sec:analysis_pss_down_sweep}
+				The down-sweep of the two phase prefix sum algorithm, functions essentially like a reverse reduction, distributing the partial prefix sum values from the inner nodes towards the leaf nodes. This is work efficient, as no operations are carried out multiple times without need. The expansion can be performed in place on the array of chunk entries and results in a concrete per chunk prefix sum value. \\
 				Unfortunately this operates on the assumption that every chunks prefix sum is actually necessary, and introduces again only limited use of the massive parallelism the GPU offers. Just like a reduction, many threads would be dormant for most of the time, or if done in layers, there would be many very sparse layers. \\
 				
-				To circumvent this issue, we devise an algorithm to compute, for a single chunk, its prefix sum value, using only the partial results of the upsweep phase. \\
+				To circumvent this issue, we devise an algorithm to compute, for a single chunk, its prefix sum value, using only the partial results of the up-sweep phase. \\
 				Because this algorithm is, just like the expansion, very memory intensive, even performing it on all chunks individually, though introducing work inefficiency might not draw much of the disadvantages. Adjacent threads will access the same memory most of the time, and the computations are very light. \\
 				
-				\markr{IMG? showing e.g. what parts of the tree are meant to be included}\\
+				\begin{figure}[!ht]
+					\centering
+					\includegraphics[width=0.45\linewidth]{./img/pss_pssidx.png}
+					\label{fig:pss_pssidx}
+					\caption{Visualization of the single chunk down-sweep calculation, performed for the element highlighted with a blue arrow. Below the partial prefix sum buffer is a virtual representation of the tree that lead to it. Green boxes in the tree mark accepted (fitting) sub trees, red boxes mark rejected ones. The vertical blue lines ends the range into which sub trees are fit. \\ Note that the rejected red subtree is the \emph{only} rejected subtree, no subtree without a box in the figure was considered, as described in the algorithm.}
+				\end{figure}
 				The algorithm essentially tries to fit as many, as large as possible, left sided subtrees into the index of the chunk to compute. Inputs are the chunk index, the partial prefix sum array and half of the smallest power of two that is greater or equal to the chunk count.
-				\markr{use propper algo styling instead of itemize}\\
 				\begin{itemize}
 					\item If the chunk index is greater than the leaf length of the already consumed trees plus the leaf length of the subtree trying to fit:
 						\subitem Add the value at the entry of index: consumed leaf length plus subtree trying to fit, to the accumulated prefix sum.
 						\subitem Add the size of the fit tree to the consumed leaf length.
 					\item Half the size of the tree to fit and repeat while greater or equal than one.
 				\end{itemize}
+				\markr{use propper algo styling instead of itemize}\\
 				This also works on non power of two chunk counts, without adjustments.
 			
 		\section{Writeout}
+			\label{sec:analysis_writeout}
 			A naive approach to perform the writeout of enabled elements to the output, would be to let adjacent threads work on seperate (possibly adjacent) chunks of input data in parallel. This does not however accomodate the fact that larger width (coalesced) memory accesses perform generally much better on GPUs. The pipeline queue for the LSUs might quickly be filled and lead to warps actually stalling the SM. \\
 			
 			Alternative to the chunks per thread approach, there is a chunk per threads approach. Here one chunk of 1024 input elements are processed at once, by one full warp of threads. There is no inter warp-synchronization required, as all thread-to-thread communication is only performed intra-warp. \\
 			The algorithm chosen starts by loading 32-bit long parts of the bitmask, one per thread of the warp, into shared memory. This makes up 1024 total bits loaded, and explains the fixation on 1024 input elements processed per chunk. \\
 			To coalesce memory accesses into larger widths, for greater GPU memory performance, the threads of a warp collectively process steps of 32 input elements at once, as many as are enabled. Unfortunately this may lead to half a dormant warp per (up to) 32 element writeout, however all threads store adjacent to each other and at once, and can as such be grouped up to fewer, larger width memory transactions. \\
 			To determine wether or not a thread has to participate in a given 32 element processing step every thread can use the bitmask stored in shared memory, to determine if the bit corresponding to its position is enabled. This leaves open the issue of what position in the output a certain thread takes when writing out its element. It can be solved with a population count of one bits, over all bits positionally before the bit corresponding to the thread. I.e. elements before the own in the 32 element step, which is again an exclusive prefix sum. \\
+			It is not necessary to calculate the prefix sum for all of the chunks processed by a warp. If the chunks are arranged in a continuous fashion, only the prefix sum of the first chunk is required. \\
 			
-			\markr{Mention: Idea of just only calculating the pss on the fly.}\\
-			\markr{Mention: Optimized writeout kernel preserves pss by processing adjacent chunks per warp. Only calc once.}\\
-			As mentioned above, the prefix sum for a chunk of elements to process may not always be actually required. For optimization of very sparse bitmasks, a secondary popcount kernel run into a seperate buffer may be useful, as processing of a chunk may be entirely skipped if the popcount entry in that chunk is zero anyway, i.e. there are no elements to process. \\
-			Because performing another popcount kernel pass is not free, it is useful that the total amount of one bits set is already known after the prefix sum upsweep. This information can be used to determine if a second popcount pass would gain any/enough performance benefits to justify its cost. \\
+			As mentioned above, the prefix sum for a chunk of elements to process may not always be actually required. For optimization of very sparse bitmasks, a secondary popcount in a seperate buffer may be useful, as processing of a chunk may be entirely skipped if the popcount entry in that chunk is zero anyway, i.e. there are no elements to process. \\
+			Because performing another popcount kernel pass is not free, it is useful that the total amount of one bits set is already known after the prefix sum up-sweep. This information can be used to determine if a second popcount pass would gain any/enough performance benefits to justify its cost. \\
 			Without using a histogram on chunks, for non uniformly distributed bitmasks like a zipf or burst distribution, the amount of total one bits may not be enough to immediately tell that the optimization targeted popcount pass would be worth it. \\
 			
 			For repeating pattern bitmasks, writeout of the input elements can be optimized to always use all 32 parallel threads of a warp with adjacent writeout locations to accomodate larger width memory transactions. There are no dormant threads on a 32 element writeout threads, except possibly at the end of a chunk. \\
@@ -249,19 +266,13 @@
 				\item Processing using the optimized writeout kernel and a full prefix sum provided by CUB (\texttt{3pass\_fproc\_true\_cub})
 					\subitem = \texttt{3pass\_popc\_none} + \texttt{cub\_pss} + \texttt{3pass\_popc\_none} + \texttt{3pass\_fproc\_true}
 			\end{itemize}
-		
-		\markr{instead of one benchmark results section maybe do another subsection for every kernel, just like in the analysis section}
-		\begin{itemize}
-			\item algo testing front to back uses packages, adding up the best-in-class component algos that make it up
-			\item IMG logarithmic runtime over datasize for all approaches and sub-kernels
-			\item package throughput over p
-			\item dimensioning heatmap to show CUDA sweetspots
-			\item other bitmask patterns
-		\end{itemize}
 	
-		\markr{IMG log runtime over datasize for all parts}\\
-		
-		\markr{some parts of this may fit better into the analysis sections}\\
+		\begin{figure}[!ht]
+			\centering
+			\includegraphics[width=0.9\linewidth]{./img/runtime_over_datasize_normal.png}
+			\label{fig:runtime_over_datasize_normal}
+			\caption{Logarithmic runtime of all tested components over increasing datasize. Fixed $p=0.5$ at a chunklength of 1024 where applicable.}
+		\end{figure}
 	
 		Both CPU based approaches, as well as the GPU based \texttt{single\_thread}, performed at all times worse than all other kernels that properly utilize the GPU's parallelism. \\
 	
@@ -271,9 +282,14 @@
 			
 			\markr{TODO must test 8 byte popc vs 4 byte, breaks 32bit chunks unfortunately}\\
 			
-			\markr{IMG heatmap uniform p0.5 popc 8GB}\\
+			\begin{figure}[!ht]
+				\centering
+				\includegraphics[width=0.9\linewidth]{./img/runtime_heatmap_dimensioning_3pass_popc_none.png}
+				\label{fig:runtime_heatmap_dimensioning_3pass_popc_none}
+				\caption{Runtime heatmap of various block- / grid-dimensions for the popcount kernel. Fixed at 8GiB of data and $p=0.5$ with a chunksize of 1024 bits.}
+			\end{figure}
 			
-			The above heatmap shows the runtime of the popcount kernel in ms, varying over some powers of two for both grid- and block-dimensioning. A slight saturation wave pattern is visible, showing that there is an optimal range of threads per SM at which the algorithm performs best. The pattern is visible as a diagonal line because both axes are logarithmic with the base two. \\
+			The heatmap \ref{fig:runtime_heatmap_dimensioning_3pass_popc_none} shows the runtime of the popcount kernel in ms, varying over some powers of two for both grid- and block-dimensioning. A slight saturation wave pattern is visible, showing that there is an optimal range of threads per SM at which the algorithm performs best. The pattern is visible as a diagonal line because both axes are logarithmic with the base two. \\
 			Using less block and/or threads per block degrades performance substantially, as the device can not be saturated, and latencies can not be hidden. Using too high dimensioning the performance drops again, even if very subtly, due to increased scheduling effort with no benefit. \\
 			The most interesting observation to be made is the relatively large drop in performance when using 1024 threads per block instead of a lower power of two. The Nsight Compute report showed the difference between these to be an almost 60\% worse L1 cache hit rate from 1024 threads per block version compared to the 512 dimensioning. The dramatically decreased hit rate also caused the LSU transaction queue to fill more frequently, stalling the SM for much longer, leading to yet again decreased performance. \\
 			
@@ -288,7 +304,7 @@
 		\section{Prefix Sum Scan}
 			Just like the popcount kernel, the two phase prefix sum scan, and especially the up-sweep phase take up very little of the total runtime of the compressstore operation. Additionally, both phases work only on the prefix sum buffer, which only has one entry per chunk. As chunklength increases, the amount of data touched to perform the prefix sum drop dramatically. Both phases work solely on global memory. \\
 		
-			\markr{comp against cub? show that package dont vary much with cub vs sa, only in writeout segment with the package image}
+			\markr{comp against cub? show that packages dont vary much with cub vs stand-alone prefix sums}
 		
 			\subsection{Up-Sweep Reduction}
 				Due to the large offset and stride of the elements accessed by each thread, there is no pattern to coalesce memory transactions into, resulting in lots of unneccessary data loaded. This kernel is again very memory bound by the many transactions performed, as there is also very little computation happening. \\
@@ -296,36 +312,52 @@
 				Because of the very low runtime part this has in an overall package already, this optimization was not investigated further. \\
 			 
 			\subsection{Down-Sweep Collection}
-				The down-sweep phase of the prefix sum uses the special method explained in \markr{REF} to compute a per chunk final prefix sum, using the partial data from the up-sweep phase. The writeout pattern of the prefix sum result per chunk is as large as possible, accomodating again, the GPUs prefference towards larger width memory transactions. \\
+				The down-sweep phase of the prefix sum uses the special method explained in section \ref{sec:analysis_pss_down_sweep} to compute a per chunk final prefix sum, using the partial data from the up-sweep phase. The writeout pattern of the prefix sum result per chunk is as large as possible, accomodating again, the GPUs prefference towards larger width memory transactions. \\
 				Using this approach the data loaded to compute the prefix sum for every chunk introduces uneccessarily loaded bytes. However, the result of a load can, because adjacent threads process adjacent chunks, almost always be used by an entire warp of threads simultaneously. In the best case, other threads of the same block may reuse the data from the L1 cache. This is because for many of the depth iterations in the algorithm, the sub trees fitted into the target chunk position are shared for all of the threads chunks. \\
 				
 				This kernel touches even less data then the up-sweep phase, and has an even lower runtime. Even though both phases operate only on global memory, any gains by modifying them to use shared memory, are negligible due to their low runtime contribution to the total package.
 		
 		\section{Writeout}
 			The writeout kernels take up by far the largest amount of runtime of any compressstore package. Considering the very small impact of both the popcount and prefix sum kernels, this section compares packages against each other.
+		
+			\begin{figure}[!ht]
+				\centering
+				\includegraphics[width=0.9\linewidth]{./img/package_runtime_over_p.png}
+				\label{fig:package_runtime_over_p}
+				\caption{Runtime of some compressstore packages over varying values of $p$, fixed at 8GiB and 1024 bit chunklength where applicable.}
+			\end{figure}
 			
-			\markr{IMG package runtime over p}\\
-			\markr{TODO fix \^ IMG x axis captions to be p not datasize}\\
+			As mentioned in the analysis of the writeout kernel, the naive chunks per thread implementation has a much worse memory access pattern than the optimized chunk per threads kernel. The measured impact of this is a roughly 10 fold increase in runtime. No package using the naive approach is shown in figure \ref{fig:package_runtime_over_p}, as it would only degrade the ability to compare the optimized version with CUB. \\
 			
-			As mentioned in the analysis of the writeout kernel, the naive chunks per thread implementation has a much worse memory access pattern than the optimized chunk per threads kernel. The measured impact of this is a roughly 10 fold increase in runtime. No package using the naive approach is shown above, as it would only degrade the ability to compare the optimized version with CUB. \\
-			
-			The graph \mark{REF} clearly shows the 1024 zero bit optimization working very well to drastically reduce the runtime for lower $p$ values. In the more dense ranges of $0.5$ and upward, the CUB algorithm performs slightly more favorably, taking only a few milliseconds less runtime. \\
+			The figure \ref{fig:package_runtime_over_p} clearly shows the 1024 zero bit optimization working very well to drastically reduce the runtime for lower $p$ values. In the more dense ranges of $0.5$ and upward, the CUB algorithm performs slightly more favorably, taking only a few milliseconds less runtime. \\
 			
 			Between the stand-alone prefix sum and using the optimized CUB functionality, there is barely a noticable difference in package runtime. This holds true for full and partial processing, the latter saving in theory a few more calculations and memory loads. \\
 			
-			Regarding $p$ values around $0.5$ and higher, performance for the \texttt{3pass\_proc\_true} packages is very near that of CUB. One possible reason for the developed algorithm to still perform worse may lie in the fact that there are at many times, especially near the $p=0.5$ value, many dormant threads in a warp per writeout pass. This is caused by the internal no synchronization principle of the algorithm, as explained in \markr{REF analysis}. \\
+			Regarding $p$ values around $0.5$ and higher, performance for the \texttt{3pass\_proc\_true} packages is very near that of CUB. One possible reason for the developed algorithm to still perform worse may lie in the fact that there are at many times, especially near the $p=0.5$ value, many dormant threads in a warp per writeout pass. This is caused by the internal no synchronization principle of the algorithm, as explained in section \ref{sec:analysis_writeout}. \\
 			One possible way to avoid this would be the precomputation of all writeout positions using the bitmask from shared memory, requiring another 1-2KiB of register/shared memory storage per warp of a block. The increased maximum width writeout size for every warp writeout cycle may clear space in the LSU transaction queue and reduce related stalls. Additionally the precomputation of the writeout positions can provide oppertunity to hide latency of other memory operations, as otherwise this kernel is very memory bound and stalls dozens of cycles between issuing instructions. \\
+			This optimization could give rise to another potential saving. If the whole bitmask of a chunk to precompute is loaded into shared memory, then it can also directly be used to much detect much finer empty and full bitmask patterns. Instead of investing a whole popcount run just to detect empty chunks, the precomputation step includes this at essentially no extra cost.
 			
-			\markr{TABLE instead of img to show performance of zipf and burst compared to uniform for the 2 best of class scenarios}
+			\begin{table}
+				\label{table:masktype_perf_comp}
+				\caption{
+					\markr{TABLE instead of img to show performance of zipf and burst compared to uniform for the 2 best in class scenarios}
+				}
+			\end{table}
 			
-			Optimizing runtime for 1024 bit long zero streaks works well on uniformly distributed bitmasks with very low $p$ values. However the $p$ value alone can only tell when this optimization will definitely improve performance, not rule out potential in itself. In the table above the runtime values for zipf and burst type bitmasks are given for the best performing CUB baseline, and the best performing \texttt{3pass} implementation. \\
+			Optimizing runtime for 1024 bit long zero streaks works well on uniformly distributed bitmasks with very low $p$ values. However the $p$ value alone can only tell when this optimization will definitely improve performance, not rule out potential in itself. In the table \ref{table:masktype_perf_comp} the runtime values for zipf and burst type bitmasks are given for the best performing CUB baseline, and the best performing \texttt{3pass} implementation. \\
 			Both the zipf and burst bitmask have a very high $p$ value, but they are not uniformly distributed, so they still score very high numbers of skippable 1024 zero bit streaks. \\
 			Performance for the burst mask is slightly higher than the zipf mask. Although this is implementation specific, the tested GPU schedules blocks with lower indices earlier, causing almost all non-skippable chunks to be processed first for the zipf mask and leaving almost only empty chunks leftover, which take a lot more computational resources than memory loads, due to the optimization. The burst mask does not always suffer this problem, due to the very long passages of only ones or only zeroes being distributed somewhat evenly across all chunks. This ensures there is always memory intensive writeout work, and computation focused skipping happening. \\
 		
 		\section{Streaming}
-			\markr{IMG packages over datasize at uniform p0.5}\\
+			\begin{figure}[!ht]
+				\centering
+				\includegraphics[width=0.9\linewidth]{./img/package_throughput_over_datasize_normal.png}
+				\label{fig:package_throughput_over_datasize_normal}
+				\caption{Throughput of some compressstore packages over increasing datasize, fixed at $p=0.5$ and 1024 bit chunklength where applicable.}
+			\end{figure}
+			
 			The streaming compressstore package performs worse than any of the packages using the optimized writeout kernel. Because it itself profits from this kernel, on very low $p$ values, streaming still runs quicker than CUB. \\
-			The graph above shows that the streaming approach only starts maximizing its potential at around 1GiB of total data size. Various powers of two have been tried for the stream counts, every data point represents the best performing stream count at that position. \\
+			The figure \ref{fig:package_throughput_over_datasize_normal} shows that the streaming approach only starts maximizing its potential at around 1GiB of total data size. Various powers of two have been tried for the stream counts, every data point represents the best performing stream count at that position. \\
 			
 			The large performance loss for small datasizes is likely owing to the extra synchronization required to launch the kernels seperately on many streams. The CUDA events are placed in a way that they can be recorded and waited for on the GPU using no additonal host side processing. The small datasize of every streams portion of the total data causes large portions of the devices processing and memory power to remain unused. Most of the runtime is supposed to be used up during writeout, which has to synchronize with previous prefix sums. Per small portion alone there is just not enough work available to saturate the devices capabilities. \\
 		
