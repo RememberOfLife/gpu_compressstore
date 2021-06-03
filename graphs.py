@@ -396,7 +396,7 @@ def dg_package_throughput_over_p(data, outdirpath, filename, throughput):
     #     label="copy_add",
     #     dashes=[1, 1]
     # )
-    ax.set_xlabel("Data in MiB")
+    ax.set_xlabel("p")
     #ax.set_xscale("log", base=10)
     ax.set_xticks([i for i in range(len(p_vals))])
     #ax.set_xticks(p_vals)
