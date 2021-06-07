@@ -33,7 +33,7 @@ void run_masktype_compare()
     // 1<<30, MASKTYPE_UNIFORM, 0.5
     // 1<<30, MASKTYPE_ZIPF, 1.2
     // 1<<30, MASKTYPE_BURST, 0.0001
-    benchmark_data<uint64_t> bdata(1<<30);
+    benchmark_data<uint64_t> bdata(1<<29);
     uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
 
     uint32_t chunk_length = 1024;
@@ -55,10 +55,10 @@ void run_masktype_compare()
     // test for uniform
     time = 0;
     for (int i = 0; i < c; i++) {
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_popc, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 32, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 32, bdata.d_mask, d_popc, chunk_length, chunk_count);
         time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
-        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 18432, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
         bdata.validate(bdata.count);
     }
@@ -75,10 +75,10 @@ void run_masktype_compare()
     onecount = bdata.generate_mask(MASKTYPE_ZIPF, 1.2);
     time = 0;
     for (int i = 0; i < c; i++) {
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_popc, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 32, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 32, bdata.d_mask, d_popc, chunk_length, chunk_count);
         time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
-        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 18432, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
         bdata.validate(bdata.count);
     }
@@ -95,10 +95,10 @@ void run_masktype_compare()
     onecount = bdata.generate_mask(MASKTYPE_BURST, 0.0001);
     time = 0;
     for (int i = 0; i < c; i++) {
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
-        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_popc, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 32, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 32, bdata.d_mask, d_popc, chunk_length, chunk_count);
         time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
-        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 4608, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
         CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
         bdata.validate(bdata.count);
     }

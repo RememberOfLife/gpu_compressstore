@@ -8,3 +8,6 @@
 /tex/*.toc
 /tex/img/
 /tex/*.sav
+/tex/*.bbl
+/tex/*.bak
+/tex/*.blg
