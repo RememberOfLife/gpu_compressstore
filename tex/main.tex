@@ -3,6 +3,16 @@
 %\documentclass[ngerman, 11pt, a4paper, twoside, cleardoublepage=empty, open=right, numbers=noenddot, cd=lightcolor, final]{tudscrreprt}
 
 \usepackage{amsmath}
+\usepackage[ruled,vlined]{algorithm2e}
+
+% for cpp
+\usepackage{color}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\DeclareCaptionFont{white}{\color{white}}
+\DeclareCaptionFormat{listing}{\colorbox{gray}{\parbox{\textwidth}{#1#2#3}}}
+\captionsetup[lstlisting]{format=listing,labelfont=white,textfont=white}
 
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
@@ -55,8 +65,7 @@
 			\begin{figure}[!ht]
 				\centering
 				\includegraphics[width=0.9\linewidth]{./img/compressstore_operation.png}
-				\label{fig:compressstore_operation}
-				\caption{Visualized compressstore operation on a 16 element long data vector and bitmask. Any values of "Don't Care" elements in the output is not relevant to the operation.}
+				\caption{\label{fig:compressstore_operation}Visualized compressstore operation on a 16 element long data vector and bitmask. Any values of "Don't Care" elements in the output is not relevant to the operation.}
 			\end{figure}
 			The compressstore operation is used to store certain elements of an input vector contiguously in memory. Using the provided bitmask the operation only selects elements for writeout that have a corresponding enabled bit (set to one) in the bitmask. Potential gaps between enabled elements are removed, thereby left packing the results into the output. The length of the output vector will always be less than or equal to that of the input vector. \\
 			Even though not all applications of this operation require the same assumptions, in this work a few common ones are made.
@@ -81,8 +90,7 @@
 				\begin{figure}[!ht]
 					\centering
 					\includegraphics[width=0.95\linewidth]{./img/gpu_architecture.png}
-					\label{fig:gpu_architecture}
-					\caption{Simplified GPU architecture diagram. In reality the realtive position and size of many components frequently changes with each generation. Some parts are omitted for clarity. The actual number of cuda cores per streaming multiprocessor (SM) is higher in real devices.}
+					\caption{\label{fig:gpu_architecture}Simplified GPU architecture diagram. In reality the realtive position and size of many components frequently changes with each generation. Some parts are omitted for clarity. The actual number of cuda cores per streaming multiprocessor (SM) is higher in real devices.}
 				\end{figure}
 				GPUs have, as their name implies, been originally devised as a dedicated device for graphical computation workloads, especially in realtime scenarios. They have long since their inception also seen much use as accelerators for general purpose computing workloads, many of which benefit greatly from the high parallelism they provide. \\
 				Modern GPU architecture consists, across different hardware manufacturers, of mostly differently named but functionally very similar components, the basics of which are described here, to give a brief overview of the structures available to improve performance. \\
@@ -115,9 +123,25 @@
 				Kernel launches and other CUDA library functions, such as copying memory between the host and device may also accept a stream argument. By default these operations are serialized in the default stream. Using non-default streams they can be parallelized on the GPU, and furthermore partially synchronized using events that are triggered and waited for by streams. \\
 				Using streams may enable partial processing of data while copying the rest from the host side to the device still. Or when using events, enables dependencies between larger chains of kernel launches. \\
 				
-				\markr{kernels host code example}\\
+				Minimal exemplary code for an increment kernel is provided below. For further information refer to the comprehensive CUDA programming guide \markr{REF cuda\_programmingguide}.
+				\begin{lstlisting}[caption=Device Side: Increment Kernel]
+__global__ void increment_kernel(int* data, int N) {
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+	if (tid < N) {
+		data[tid] += 1;
+	}
+}
+				\end{lstlisting}
 				
-				\markr{kernels device code example}\\
+				\begin{lstlisting}[caption=Host Side: Device Malloc and Kernel Launch]
+int* h_data = (int*)malloc(1000*sizeof(int));
+// ... h_data gets populated with numbers
+int* d_data; // pointer to data on the device
+cudaMalloc(&d_data, 1000*sizeof(int));
+cudaMemcpy(d_data, h_data, 1000*sizeof(int), cudaMemcpyHostToDevice);
+increment_kernel<<<4, 256>>>(d_data, 1000);
+				\end{lstlisting}
+				
 			
 		\section{AVX}
 			Advanced Vector Extensions (AVX) are SIMD extensions to the x86 instruction set architecture supported by many modern CPUs. AVX instructions are essentially hardware acceleration features for operations that otherwise require multiple non-AVX instructions. The idea of this vector processing is to execute a given operation on all elements of a fixed size vector at once. Larger problems can usually be broken down into smaller vectors that can be processed by AVX and similar vector processing instructions. \\
@@ -132,6 +156,8 @@
 			The algorithms used in the CUB components have been fine tuned for usage with many different CUDA GPUs, and are specialized for operation not only device wide, but also spanning just a warp or block. \\
 			
 			The kernel used by CUB to perform the compressstore operation is designed to only schedule one wave of blocks to the device. That is, there are enough blocks to fill the device, but no additional blocks waiting to be scheduled onto an SM. This ensures that all synchronization can be done at runtime on the device, instead of relying on multiple kernel launches to synchronize dependency chains. \\
+			
+			\markr{Mention that CUB does extra work in the flagged function.}
 		
 	\chapter{Analysis and Concepts}
 		The general compressstore problem can be split into three smaller sequential partial tasks. The first two of which only perform action on the bitmask and intermediate constructs, to enable simple parallelization of the actual writeout task, which touches the most data. \\
@@ -168,8 +194,7 @@
 				\begin{figure}[!ht]
 					\centering
 					\includegraphics[width=0.95\linewidth]{./img/pss_up_sweep.png}
-					\label{fig:pss_up_sweep}
-					\caption{Visualization of the up-sweep operation performed by the prefix sum. The left side represents normal operation on a vector with a power of two element count. The right represents adjusted operation to accomodate for non power of two vector sizes. Marked in red is the out of bounds storage location, holding at the end the total amount of one bits. Grayed out cells represent the theoretical power of two cells, no memory is allocated for them.}
+					\caption{\label{fig:pss_up_sweep}Visualization of the up-sweep operation performed by the prefix sum. The left side represents normal operation on a vector with a power of two element count. The right represents adjusted operation to accomodate for non power of two vector sizes. Marked in red is the out of bounds storage location, holding at the end the total amount of one bits. Grayed out cells represent the theoretical power of two cells, no memory is allocated for them.}
 				\end{figure}
 				One launch of the up-sweep reduction kernel, corresponds to one layer in the prefix sum reduction tree. The kernel is launched $\log_2(\text{total element count})$ times. \\
 				To perform one layer of reduction, for every two consecutive tree nodes, their sum is stored in the location of the right node, which will correspond to the left node in the next layer. Growing with the increasing depth of the reduction, towards the root, are the offsets between \emph{adjacent} nodes, i.e. those that need to be summed. Starting at depth zero for the leaf nodes, increasing by one for every layer, the $n$-th left element can be found at index $(2n+1) \cdot 2^d -1$ for depth $d$. The adjacent right element is found $2^d$ elements further to the right. \\
@@ -189,17 +214,32 @@
 				\begin{figure}[!ht]
 					\centering
 					\includegraphics[width=0.45\linewidth]{./img/pss_pssidx.png}
-					\label{fig:pss_pssidx}
-					\caption{Visualization of the single chunk down-sweep calculation, performed for the element highlighted with a blue arrow. Below the partial prefix sum buffer is a virtual representation of the tree that lead to it. Green boxes in the tree mark accepted (fitting) sub trees, red boxes mark rejected ones. The vertical blue lines ends the range into which sub trees are fit. \\ Note that the rejected red subtree is the \emph{only} rejected subtree, no subtree without a box in the figure was considered, as described in the algorithm.}
+					\caption{\label{fig:pss_pssidx}Visualization of the single chunk down-sweep calculation, performed for the element highlighted with a blue arrow. Below the partial prefix sum buffer is a virtual representation of the tree that lead to it. Green boxes in the tree mark accepted (fitting) sub trees, red boxes mark rejected ones. The vertical blue lines ends the range into which sub trees are fit. \\ Note that the rejected red subtree is the \emph{only} rejected subtree, no subtree without a box in the figure was considered, as described in the algorithm.}
 				\end{figure}
 				The algorithm essentially tries to fit as many, as large as possible, left sided subtrees into the index of the chunk to compute. Inputs are the chunk index, the partial prefix sum array and half of the smallest power of two that is greater or equal to the chunk count.
+				\begin{algorithm}[!ht]
+					\SetAlgoLined
+					\KwIn{cid, id of the target chunk}
+					\KwIn{p2, half of the smallest power of two that is greater of equal to the chunk count}
+					acc $\gets 0$; \\
+					consumed $\gets 0$; \\
+					\While{p2 $>= 1$}{
+						\If{cid $>= consumed + p2$}{
+							add value of prefix sum subtree at [consumed$+$p2$-1$] to acc; \\
+							add p2 to consumed; \\
+						}
+						divide p2 by 2; \\
+					}
+					\KwOut{acc, prefix sum of the target chunk}
+					\caption{On-the-fly Prefix Sum Computation}
+				\end{algorithm}
 				\begin{itemize}
 					\item If the chunk index is greater than the leaf length of the already consumed trees plus the leaf length of the subtree trying to fit:
 						\subitem Add the value at the entry of index: consumed leaf length plus subtree trying to fit, to the accumulated prefix sum.
 						\subitem Add the size of the fit tree to the consumed leaf length.
 					\item Half the size of the tree to fit and repeat while greater or equal than one.
 				\end{itemize}
-				\markr{use propper algo styling instead of itemize}\\
+				\markr{possibly restyle leaf length into algo style, also adjust par before algo}\\
 				This also works on non power of two chunk counts, without adjustments.
 			
 		\section{Writeout}
@@ -234,7 +274,7 @@
 	\chapter{Evaluation}
 	
 		\section{Experimental Setup}
-			All implementations have been tested on a RTX Quadro 8000 GPU, installed on a server provided by the chair of database theory, running a linux operating system. This GPU has 72 SMs and 48GB of GDDR6 global memory with a theoretical bandwidth of about 672 GB/s. \markr{REF} \\
+			All implementations have been tested on a RTX Quadro 8000 GPU, installed on a server provided by the chair of database theory, running a linux operating system. This GPU has 72 SMs and 48GB of GDDR6 global memory with a theoretical bandwidth of about 672 GB/s \markr{REF quadrortx8000\_specs}. All tested algorithms used 64-bit integers as benchmark data to perform the compressstore on. \\
 			
 			To individually test the developed kernels, ignoring any PCIe data transfer times, CUDA events were used. Placing one event just before, and another just after the kernel launch, allows precise timing of runtime on the GPU. Where possible, grid- and block-dimensions as well as chunklength were varied. The tested kernels are:\\
 			\begin{itemize}
@@ -270,8 +310,7 @@
 		\begin{figure}[!ht]
 			\centering
 			\includegraphics[width=0.9\linewidth]{./img/runtime_over_datasize_normal.png}
-			\label{fig:runtime_over_datasize_normal}
-			\caption{Logarithmic runtime of all tested components over increasing datasize. Fixed $p=0.5$ at a chunklength of 1024 where applicable.}
+			\caption{\label{fig:runtime_over_datasize_normal}Logarithmic runtime of all tested components over increasing datasize. Fixed $p=0.5$ at a chunklength of 1024 where applicable.}
 		\end{figure}
 	
 		Both CPU based approaches, as well as the GPU based \texttt{single\_thread}, performed at all times worse than all other kernels that properly utilize the GPU's parallelism. \\
@@ -285,8 +324,7 @@
 			\begin{figure}[!ht]
 				\centering
 				\includegraphics[width=0.9\linewidth]{./img/runtime_heatmap_dimensioning_3pass_popc_none.png}
-				\label{fig:runtime_heatmap_dimensioning_3pass_popc_none}
-				\caption{Runtime heatmap of various block- / grid-dimensions for the popcount kernel. Fixed at 8GiB of data and $p=0.5$ with a chunksize of 1024 bits.}
+				\caption{\label{fig:runtime_heatmap_dimensioning_3pass_popc_none}Runtime heatmap of various block- / grid-dimensions for the popcount kernel. Fixed at 8GiB of data and $p=0.5$ with a chunksize of 1024 bits.}
 			\end{figure}
 			
 			The heatmap \ref{fig:runtime_heatmap_dimensioning_3pass_popc_none} shows the runtime of the popcount kernel in ms, varying over some powers of two for both grid- and block-dimensioning. A slight saturation wave pattern is visible, showing that there is an optimal range of threads per SM at which the algorithm performs best. The pattern is visible as a diagonal line because both axes are logarithmic with the base two. \\
@@ -304,7 +342,7 @@
 		\section{Prefix Sum Scan}
 			Just like the popcount kernel, the two phase prefix sum scan, and especially the up-sweep phase take up very little of the total runtime of the compressstore operation. Additionally, both phases work only on the prefix sum buffer, which only has one entry per chunk. As chunklength increases, the amount of data touched to perform the prefix sum drop dramatically. Both phases work solely on global memory. \\
 		
-			\markr{comp against cub? show that packages dont vary much with cub vs stand-alone prefix sums}
+			As visible in the later shown figures \ref{fig:package_runtime_over_p} and \ref{fig:package_throughput_over_datasize_normal} there is barely any difference between \texttt{3pass} packages using the stand-alone prefix sum versus that calculated by cub. This also extends to the use of the partial prefix sum. \\
 		
 			\subsection{Up-Sweep Reduction}
 				Due to the large offset and stride of the elements accessed by each thread, there is no pattern to coalesce memory transactions into, resulting in lots of unneccessary data loaded. This kernel is again very memory bound by the many transactions performed, as there is also very little computation happening. \\
@@ -323,8 +361,7 @@
 			\begin{figure}[!ht]
 				\centering
 				\includegraphics[width=0.9\linewidth]{./img/package_runtime_over_p.png}
-				\label{fig:package_runtime_over_p}
-				\caption{Runtime of some compressstore packages over varying values of $p$, fixed at 8GiB and 1024 bit chunklength where applicable.}
+				\caption{\label{fig:package_runtime_over_p}Runtime of some compressstore packages over varying values of $p$, fixed at 8GiB and 1024 bit chunklength where applicable.}
 			\end{figure}
 			
 			As mentioned in the analysis of the writeout kernel, the naive chunks per thread implementation has a much worse memory access pattern than the optimized chunk per threads kernel. The measured impact of this is a roughly 10 fold increase in runtime. No package using the naive approach is shown in figure \ref{fig:package_runtime_over_p}, as it would only degrade the ability to compare the optimized version with CUB. \\
@@ -335,13 +372,19 @@
 			
 			Regarding $p$ values around $0.5$ and higher, performance for the \texttt{3pass\_proc\_true} packages is very near that of CUB. One possible reason for the developed algorithm to still perform worse may lie in the fact that there are at many times, especially near the $p=0.5$ value, many dormant threads in a warp per writeout pass. This is caused by the internal no synchronization principle of the algorithm, as explained in section \ref{sec:analysis_writeout}. \\
 			One possible way to avoid this would be the precomputation of all writeout positions using the bitmask from shared memory, requiring another 1-2KiB of register/shared memory storage per warp of a block. The increased maximum width writeout size for every warp writeout cycle may clear space in the LSU transaction queue and reduce related stalls. Additionally the precomputation of the writeout positions can provide oppertunity to hide latency of other memory operations, as otherwise this kernel is very memory bound and stalls dozens of cycles between issuing instructions. \\
-			This optimization could give rise to another potential saving. If the whole bitmask of a chunk to precompute is loaded into shared memory, then it can also directly be used to much detect much finer empty and full bitmask patterns. Instead of investing a whole popcount run just to detect empty chunks, the precomputation step includes this at essentially no extra cost.
+			This optimization could give rise to another potential saving. If the whole bitmask of a chunk to precompute is loaded into shared memory, then it can also directly be used to much detect much finer empty and full bitmask patterns. Instead of investing a whole popcount run just to detect empty chunks, the precomputation step includes this at essentially no extra cost. \\
 			
-			\begin{table}
-				\label{table:masktype_perf_comp}
-				\caption{
-					\markr{TABLE instead of img to show performance of zipf and burst compared to uniform for the 2 best in class scenarios}
-				}
+			\begin{table}[!ht]
+				\centering
+				\begin{tabular}{c | c c c}
+					\hline
+					Algorithm & Uniform ($p=0.50$) & Burst ($p=0.50$) & Zipf ($p=0.29$) \\
+					\hline
+					3pass & $26.58$ & $18.90$ & $19.76$ \\
+					CUB & $23.50$ & $23.78$ & $21.59$ \\
+					\hline
+				\end{tabular}
+				\caption{\label{table:masktype_perf_comp}Runtime in milliseconds of \texttt{3pass\_fproc\_true\_cub} with its best-in-class configuration and \texttt{cub\_flagged\_biterator}, across three different masktypes. The given $p$ value of each masktype tells the total portion of one bits across the 8GiB dataset for the particular distribution.}
 			\end{table}
 			
 			Optimizing runtime for 1024 bit long zero streaks works well on uniformly distributed bitmasks with very low $p$ values. However the $p$ value alone can only tell when this optimization will definitely improve performance, not rule out potential in itself. In the table \ref{table:masktype_perf_comp} the runtime values for zipf and burst type bitmasks are given for the best performing CUB baseline, and the best performing \texttt{3pass} implementation. \\
@@ -352,8 +395,7 @@
 			\begin{figure}[!ht]
 				\centering
 				\includegraphics[width=0.9\linewidth]{./img/package_throughput_over_datasize_normal.png}
-				\label{fig:package_throughput_over_datasize_normal}
-				\caption{Throughput of some compressstore packages over increasing datasize, fixed at $p=0.5$ and 1024 bit chunklength where applicable.}
+				\caption{\label{fig:package_throughput_over_datasize_normal}Throughput of some compressstore packages over increasing datasize, fixed at $p=0.5$ and 1024 bit chunklength where applicable.}
 			\end{figure}
 			
 			The streaming compressstore package performs worse than any of the packages using the optimized writeout kernel. Because it itself profits from this kernel, on very low $p$ values, streaming still runs quicker than CUB. \\
@@ -370,8 +412,10 @@
 	\chapter{Conclusion}
 	
 		\section{Future Work}
-			\markr{Some of the future work parts are embedded into the evaluation section currently, where they fit much better and more naturally}
+			\markr{Some of the future work parts are embedded into the evaluation section currently, where they fit much better and more naturally}\\
 	
 		\section{Related Work}
+		
+	\markr{Bibliography}\\
 	
 \end{document}
