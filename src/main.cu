@@ -27,6 +27,98 @@ void gpu_buffer_print(T* d_buffer, uint32_t offset, uint32_t count)
     free(h_buffer);
 }
 
+void run_masktype_compare()
+{
+    // to test 8GiB
+    // 1<<30, MASKTYPE_UNIFORM, 0.5
+    // 1<<30, MASKTYPE_ZIPF, 1.2
+    // 1<<30, MASKTYPE_BURST, 0.0001
+    benchmark_data<uint64_t> bdata(1<<30);
+    uint32_t onecount = bdata.generate_mask(MASKTYPE_UNIFORM, 0.5);
+
+    uint32_t chunk_length = 1024;
+    uint32_t chunk_count = bdata.count / chunk_length;
+    uint32_t* d_pss;
+    CUDA_TRY(cudaMalloc(&d_pss, chunk_count*sizeof(uint32_t)));
+    uint32_t* d_popc;
+    CUDA_TRY(cudaMalloc(&d_popc, chunk_count*sizeof(uint32_t)));
+
+    uint32_t* d_pss_total;
+    CUDA_TRY(cudaMalloc(&d_pss_total, sizeof(uint32_t)));
+    CUDA_TRY(cudaMemset(d_pss_total, 0x00, sizeof(uint32_t)));
+
+    std::cout << "setup\n";
+
+    int c = 10;
+    float time;
+
+    // test for uniform
+    time = 0;
+    for (int i = 0; i < c; i++) {
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_popc, chunk_length, chunk_count);
+        time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
+        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(bdata.count);
+    }
+    std::cout << "time uniform 3pass: " << time/c << "\n";
+    time = 0;
+    for (int i = 0; i < c; i++) {
+        time += launch_cub_flagged_biterator(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss_total, bdata.count);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(onecount);
+    }
+    std::cout << "time uniform cub: " << time/c << "\n";
+
+    // test for zipf
+    onecount = bdata.generate_mask(MASKTYPE_ZIPF, 1.2);
+    time = 0;
+    for (int i = 0; i < c; i++) {
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_popc, chunk_length, chunk_count);
+        time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
+        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(bdata.count);
+    }
+    std::cout << "time zipf 3pass: " << time/c << "\n";
+    time = 0;
+    for (int i = 0; i < c; i++) {
+        time += launch_cub_flagged_biterator(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss_total, bdata.count);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(onecount);
+    }
+    std::cout << "time zipf cub: " << time/c << "\n";
+
+    // test for burst
+    onecount = bdata.generate_mask(MASKTYPE_BURST, 0.0001);
+    time = 0;
+    for (int i = 0; i < c; i++) {
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_pss, chunk_length, chunk_count);
+        time += launch_3pass_popc_none(bdata.ce_start, bdata.ce_stop, 0, 512, bdata.d_mask, d_popc, chunk_length, chunk_count);
+        time += launch_cub_pss(0, bdata.ce_start, bdata.ce_stop, d_pss, d_pss_total, chunk_count);
+        time += launch_3pass_proc_true(bdata.ce_start, bdata.ce_stop, 0, 1024, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss, true, d_popc, chunk_length, chunk_count);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(bdata.count);
+    }
+    std::cout << "time burst 3pass: " << time/c << "\n";
+    time = 0;
+    for (int i = 0; i < c; i++) {
+        time += launch_cub_flagged_biterator(bdata.ce_start, bdata.ce_stop, bdata.d_input, bdata.d_output, bdata.d_mask, d_pss_total, bdata.count);
+        CUDA_TRY(cudaMemcpy(bdata.h_output, bdata.d_output, sizeof(uint64_t)*bdata.count, cudaMemcpyDeviceToHost));
+        bdata.validate(onecount);
+    }
+    std::cout << "time burst cub: " << time/c << "\n";
+
+    CUDA_TRY(cudaFree(d_pss_total));
+    CUDA_TRY(cudaFree(d_popc));
+    CUDA_TRY(cudaFree(d_pss));
+
+    printf("done\n");
+    exit(0);
+}
+
 void run_sandbox()
 {
     benchmark_data<uint64_t> bdata(1<<21);
@@ -101,7 +193,9 @@ int main()
     int cuda_dev_id = 0;
     CUDA_TRY(cudaSetDevice(cuda_dev_id));
 
-    run_sandbox();
+    run_masktype_compare(); // exits
+
+    //run_sandbox(); // exits
 
     std::ofstream result_data;
     result_data.open("result_data.csv");
