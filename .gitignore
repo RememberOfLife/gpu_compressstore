@@ -11,3 +11,6 @@
 /tex/*.bbl
 /tex/*.bak
 /tex/*.blg
+/tex/*.bcf
+/tex/*.out
+/tex/*.xml
