@@ -2,6 +2,10 @@
 \documentclass{tudscrreprt}
 %\documentclass[ngerman, 11pt, a4paper, twoside, cleardoublepage=empty, open=right, numbers=noenddot, cd=lightcolor, final]{tudscrreprt}
 
+% fix bib
+\usepackage[style=numeric,sorting=nyt]{biblatex}
+\addbibresource{main.bib}
+
 \usepackage{amsmath}
 \usepackage[ruled,vlined]{algorithm2e}
 
@@ -22,8 +26,6 @@
 \usepackage{xcolor}
 \definecolor{review}{RGB}{221,33,114}
 \newcommand{\markr}[1]{\textcolor{review}{$\langle$#1$\rangle$}}
-
-%\usepackage{biblatex}
 
 \begin{document}
 	
@@ -49,18 +51,16 @@
 	\tableofcontents
 	
 	\chapter{Introduction}
+		With the rise of increasingly capable computing hardware and often even faster growing data collection mechanisms, modern data refinement is not an easy task anymore. Recent years have also shown a trend of using general purpose graphics processing units (GPUs or GPGPUs) to accelerate traditional easily parallelizable workloads. \\
 		
-		\section{Motivation}
-			With the rise of increasingly capable computing hardware and often even faster growing data collection mechanisms, modern data refinement is not an easy task anymore. Recent years have also shown a trend of using general purpose graphics processing units (GPUs or GPGPUs) to accelerate traditional easily parallelizable workloads. \\
-			
-			The compressstore operation that this work deals with fitting to the GPU, also has applications in the mentioned data refinement workflows. \\
-			Most obvious is the use as a database projection operation, selecting only some columns of data from a larger set. This non general operational mode of a compressstore can be optimized for every given pattern at runtime. \\
-			A more general use might be to reduce the size of a problem between single steps of a process. This may be after certain filters have been applied to an intermediate dataset and excess data is best discarded to reduce unnecessary workload on successive processing steps. When the data to remove is not partioned in a regular fashion the issue calls for the compressstore operation. \\
-			Similar use, although on a different granularity, is required at enormous data collection facilities such as a CERN detector \markr{REF to cern paper}. \\
-			
-			Viability of this relies heavily on fast runtimes for a procedure designed to save even more time overall. Catering to this need is the massively parallel computing capability of modern GPUs, which can be utilized to a great extent with the compressstore operation. This parallelization requires careful tuning of GPU specific parameters to realize the highest performance gains. \\
-			
-			Regarding database uses, the input masks used for the operation may not always be uniformly distributed. Some of these non uniform masktypes may contain even more potential for optimization. \\
+		The compressstore operation that this work deals with fitting to the GPU, also has applications in the mentioned data refinement workflows. \\
+		Most obvious is the use as a database projection operation, selecting only some columns of data from a larger set. This non general operational mode of a compressstore can be optimized for every given pattern at runtime. \\
+		A more general use might be to reduce the size of a problem between single steps of a process. This may be after certain filters have been applied to an intermediate dataset and excess data is best discarded to reduce unnecessary workload on successive processing steps. When the data to remove is not partioned in a regular fashion the issue calls for the compressstore operation. \\
+		Similar use, although on a different granularity, is required at enormous data collection facilities such as a CERN detector \cite{cern_datastreaming}. \\
+		
+		Viability of this relies heavily on fast runtimes for a procedure designed to save even more time overall. Catering to this need is the massively parallel computing capability of modern GPUs, which can be utilized to a great extent with the compressstore operation. This parallelization requires careful tuning of GPU specific parameters to realize the highest performance gains. \\
+		
+		Regarding database uses, the input masks used for the operation may not always be uniformly distributed. Some of these non uniform masktypes may contain even more potential for optimization. \\
 		
 	\chapter{Foundations}
 		In this section we will introduce key concepts required to understand the work and its functioning. Specifically we start by defining the compressstore problem and its nuances, before providing a broad overview of the Nvidia CUDA GPU architecture and execution model as it was used to develop and compare the implementations. For usage as baseline comparisons we also briefly look at AVX and the existing CUB implementation.
@@ -127,7 +127,7 @@
 				Kernel launches and other CUDA library functions, such as copying memory between the host and device may also accept a stream argument. By default these operations are serialized in the default stream. Using non-default streams they can be parallelized on the GPU, and furthermore partially synchronized using events that are triggered and waited for by streams. \\
 				Using streams may enable partial processing of data while copying the rest from the host side to the device still. Or when using events, enables dependencies between larger chains of kernel launches. \\
 				
-				Minimal exemplary code for an increment kernel is provided below. For further information refer to the comprehensive CUDA programming guide \markr{REF cuda\_programmingguide}.
+				Minimal exemplary code for an increment kernel is provided below. For further information refer to the comprehensive CUDA programming guide \cite{cuda_programmingguide}.
 				\begin{lstlisting}[caption=Device Side: Increment Kernel]
 __global__ void increment_kernel(int* data, int N) {
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -179,7 +179,7 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 		
 		The emphasis on reducing the amount of touched data is important, because for the compressstore operation there are much more memory accesses than actual calculations performed. If the writeout work can be simplified by taking more time to analyze the much smaller bitmask, considerable time may be saved, especially for very sparse masks of various distributions.
 	
-		When working on bitmasks of repeating patterns, as they are created by a project operation, none of the prepperation steps are neccessary. The writeout location of each input element is directly available via calculation. To reduce the amount of dormant threads in a naive monolithic or grid-striding \markr{REF cuda\_gridstriding} implementation of this for low density bitmasks, a skip table can be precalculated for the pattern, such that the writeout memory access is always the width of all 32 threads of a warp writing at once their corresponding input element. \\
+		When working on bitmasks of repeating patterns, as they are created by a project operation, none of the prepperation steps are neccessary. The writeout location of each input element is directly available via calculation. To reduce the amount of dormant threads in a naive monolithic or grid-striding \cite{cuda_gridstriding} implementation of this for low density bitmasks, a skip table can be precalculated for the pattern, such that the writeout memory access is always the width of all 32 threads of a warp writing at once their corresponding input element. \\
 		This chunk wise algorithm can then be applied in chunks of elements over the entire input data, requiring no reading a bitmask, because the pattern is known beforehand. \\
 	
 		\section{Popcount}
@@ -220,7 +220,9 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 					\includegraphics[width=0.45\linewidth]{./img/pss_pssidx.png}
 					\caption{\label{fig:pss_pssidx}Visualization of the single chunk down-sweep calculation, performed for the element highlighted with a blue arrow. Below the partial prefix sum buffer is a virtual representation of the tree that lead to it. Green boxes in the tree mark accepted (fitting) sub trees, red boxes mark rejected ones. The vertical blue lines ends the range into which sub trees are fit. \\ Note that the rejected red subtree is the \emph{only} rejected subtree, no subtree without a box in the figure was considered, as described in the algorithm.}
 				\end{figure}
-				The algorithm essentially tries to fit as many, as large as possible, left sided subtrees into the index of the chunk to compute. Inputs are the chunk index, the partial prefix sum array and half of the smallest power of two that is greater or equal to the chunk count.
+			
+				The algorithm essentially tries to fit as many, as large as possible, left sided subtrees into the index of the chunk to compute. Inputs are the chunk index, the partial prefix sum array and half of the smallest power of two that is greater or equal to the chunk count. The working operation is described in the algorithm \ref{alg:pssidx}. \\
+				
 				\begin{algorithm}[!ht]
 					\SetAlgoLined
 					\KwIn{cid, id of the target chunk}
@@ -235,16 +237,11 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 						divide p2 by 2; \\
 					}
 					\KwOut{acc, prefix sum of the target chunk}
-					\caption{On-the-fly Prefix Sum Computation}
+					\caption{\label{alg:pssidx}On-the-fly Prefix Sum Computation}
 				\end{algorithm}
-				\begin{itemize}
-					\item If the chunk index is greater than the leaf length of the already consumed trees plus the leaf length of the subtree trying to fit:
-						\subitem Add the value at the entry of index: consumed leaf length plus subtree trying to fit, to the accumulated prefix sum.
-						\subitem Add the size of the fit tree to the consumed leaf length.
-					\item Half the size of the tree to fit and repeat while greater or equal than one.
-				\end{itemize}
-				\markr{possibly restyle leaf length into algo style, also adjust par before algo}\\
-				This also works on non power of two chunk counts, without adjustments.
+			
+				This also works on non power of two chunk counts, without adjustments. \\
+				The power of two that is divided every iteration (depth level), can be imagined as a subtree that has at its leaf level a width of p2. The colored boxes in figure \ref{fig:pss_pssidx} represent the leaf level width (leaf length) of the subtrees being fit. The boxes are placed at the highest node of their respective subtree, emphasizing the focus on fitting the largest possible subtrees first, as may include smaller subtrees that then do not need testing. \\
 			
 		\section{Writeout}
 			\label{sec:analysis_writeout}
@@ -278,7 +275,7 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 	\chapter{Evaluation}
 	
 		\section{Experimental Setup}
-			All implementations have been tested on a RTX Quadro 8000 GPU, installed on a server provided by the chair of database theory, running a linux operating system. This GPU has 72 SMs and 48GB of GDDR6 global memory with a theoretical bandwidth of about 672 GB/s \markr{REF quadrortx8000\_specs}. All tested algorithms used 64-bit integers as benchmark data to perform the compressstore on. \\
+			All implementations have been tested on a RTX Quadro 8000 GPU, installed on a server provided by the chair of database theory, running a linux operating system. This GPU has 72 SMs and 48GB of GDDR6 global memory with a theoretical bandwidth of about 672 GB/s \cite{quadrortx8000_specs}. All tested algorithms used 64-bit integers as benchmark data to perform the compressstore on. \\
 			
 			To individually test the developed kernels, ignoring any PCIe data transfer times, CUDA events were used. Placing one event just before, and another just after the kernel launch, allows precise timing of runtime on the GPU. Where possible, grid- and block-dimensions as well as chunklength were varied. The tested kernels are:\\
 			\begin{itemize}
@@ -323,7 +320,7 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 			The popcount kernel takes up relatively little runtime in the total compressstore operation. Because there is no comparison for it and the performed actions are simple, the runtime can be considered almost negligable. \\
 			The memory access pattern for the chunkwise writeout of the popcount result deliberately accomodates for the GPUs preferrence towards larger width load/store transactions. \\
 			
-			\markr{8 byte popc is almost twice as fast as 4 byte popc, but overall time is very small still, and it breaks 32byte chunks, this may be worth not supporting, due to it never being used.. writeout performs best at 32chunks too though}\\
+			Measurements show that a minimal modification of the algorithm, to utilize a 64-bit integer popc instruction, almost halves the runtime. To preserve compatibility with 32 bit long chunks, additional guards have to be inserted for the edge cases. Across 8GiB of input data, this is still only an improvement of roughly $0.25\text{ms}$ on the provided hardware. \\
 			
 			\begin{figure}[!ht]
 				\centering
@@ -414,9 +411,12 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 	\chapter{Conclusion}
 	
 		\section{Future Work}
-	
-		\section{Related Work}
+			\markr{TODO}\\
 		
-	\markr{Bibliography}\\
+		\section{Related Work}
+			\markr{TODO}\\
+	
+	\chapter*{Bibliography}
+		\printbibliography[heading=none]
 	
 \end{document}
