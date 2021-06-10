@@ -27,6 +27,8 @@
 \definecolor{review}{RGB}{221,33,114}
 \newcommand{\markr}[1]{\textcolor{review}{$\langle$#1$\rangle$}}
 
+\usepackage{tikz}
+
 \begin{document}
 	
 	\faculty{Fakultät Informatik}
@@ -44,16 +46,16 @@
 	\supervisor{Prof. Dr.-Ing. habil. Dirk Habich \and Dipl.-Inf. Johannes Fett}
 	\professor{Prof. Dr.-Ing. habil. Wolfgang Lehner}
 	\maketitle
-	\confirmation
+	
+	%\confirmation
+	%include screenshot confirmation with signature here
+	\vspace*{5cm}
+	\includegraphics[width=\linewidth]{img/confirmation.png}
+	\thispagestyle{empty}
+	\newpage
 	
 	\chapter*{Abstract}
-		\begin{itemize}
-			\item work deals with compressstore on gpu
-			\item analyze performance considerations
-			\item compare to existing cub
-			\item match cub in general case by ~2ms
-			\item improvement over cub in sparse (edge/special) cases
-		\end{itemize}
+		In this work, we develop a new set of kernels to perform the compressstore operation on the GPU. We analyse the problem and devise an algorithm capable of parallelizing the issue. Along the way we present some considerations that were made to increase performance, and evaluate their usefulness. Compared to the best existing baseline we found, CUB, our new \texttt{3pass} kernels achieved runtimes slightly slower than those of CUB in the general case. In some of the special cases we looked at, such as bitmasks with extreme sparsity, our kernels perform much better than CUB.
 	
 	\tableofcontents
 	
@@ -116,7 +118,7 @@
 				The concepts covered in the following part of this section are also explained in the Fermi Generation Whitepaper from NVIDIA \cite{fermi_whitepaper}, and one of many publicly available university lectures on the topic \cite{gpu_lecture}.
 				
 				When executing code on the GPU, several parallel and concurrent threads all execute the same code. Discernible difference for accessing inputs and outputs is provided solely through a running count across all threads of a workload. More on this and the use of branches in section \ref{sec:gpu_execution_model}. \\
-				When launching a kernel (the workload) that is meant to run on the GPU, the user specifies a number of blocks (grid dimension) and a number of threads per block (block dimension) for the GPU to launch. \\
+				When launching a kernel, the workload that is meant to run on the GPU, the user specifies a number of blocks (grid dimension) and a number of threads per block (block dimension) for the GPU to launch. \\
 				Scheduling of blocks on the GPU is managed by the GigaThread engine, specially designed by NVIDIA to handle the immensely parallel tasks assigned to GPUs. It distributes the outstanding blocks of running kernels onto the many streaming multiprocessors (SMs) of the GPU. The SMs are the key structure of processing, of which several dozens can be found in modern devices. When a block of threads is assigned to an SM, the threads it contains are grouped into warps of 32 each. \markr{REF} \\
 				
 				Each SM contains many so called CUDA cores, which are the real execution units used by warps running on the SM. Every thread alive on an SM has its own registers in a very large register file that serves the entire SM. To distribute the work that threads want to perform across the CUDA cores the SM uses several warp schedulers, that assign a whole warp of threads to execution units respective of the instruction that is being executed. \\
@@ -216,20 +218,20 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 				
 				The above algorithm only works on chunk counts equal to a power of two. It can easily be adapted to work with any count of chunks by introducing two more checks. \\
 				If both the left and the right subtree indices are out of bounds, their result does not need to be recorded, since it is always zero, and is only going to be propagated further right as well. There would never be any new information introduced that can not be derived from the index, i.e. zero. \\
-				There exists at most one pair of subtrees per depth layer, such that the left index exists and the right index is out of bounds. In this case, the value of the left subtree, and the right subtree (zero), can not be stored in the location of the right subtree, and is thus stored in a special out of bounds location, just for this case. Incidentally, after the algorithm is finished on a non power of two chunk count array, or is run again with depth increased by one on a power of two chunk count array, the resulting total number of one bits is stored in the out of bounds location. \\
+				There exists at most one pair of subtrees per depth layer, such that the left index exists and the right index is out of bounds. In this case, the value of the left subtree, and the right subtree (zero), can not be stored in the location of the right subtree, and is thus stored in a special out of bounds location, just for this case. Incidentally, after the algorithm is finished on a non-power of two chunk count array, or is run again with depth increased by one on a power of two chunk count array, the resulting total number of one bits is stored in the out of bounds location. \\
 			
 			\subsection{Down-Sweep Collection}
 				\label{sec:analysis_pss_down_sweep}
 				The down-sweep of the two phase prefix sum algorithm, functions essentially like a reverse reduction, distributing the partial prefix sum values from the inner nodes towards the leaf nodes. This is work efficient, as no operations are carried out multiple times without need. The expansion can be performed in place on the array of chunk entries and results in a concrete per chunk prefix sum value. \\
-				Unfortunately this operates on the assumption that every chunks prefix sum is actually necessary, and introduces again only limited use of the massive parallelism the GPU offers. Just like a reduction, many threads would be dormant for most of the time, or if done in layers, there would be many very sparse layers. \\
+				Unfortunately this operates on the assumption that every chunk's prefix sum is actually necessary, and introduces again only limited use of the massive parallelism the GPU offers. Just like a reduction, many threads would be dormant for most of the time, or if done in layers, there would be many very sparse layers. \\
 				
 				To circumvent this issue, we devise an algorithm to compute, for a single chunk, its prefix sum value, using only the partial results of the up-sweep phase. \\
-				Because this algorithm is, just like the expansion, very memory intensive, even performing it on all chunks individually, though introducing work inefficiency might not draw much of the disadvantages. Adjacent threads will access the same memory most of the time, and the computations are very light. \\
+				This algorithm is very memory intensive, just like the expansion. Even performing it on all chunks individually might not draw much of the disadvantages, though it will introduce work inefficiency. Adjacent threads will access the same memory most of the time, and the computations are very light. \\
 				
 				\begin{figure}[!ht]
 					\centering
 					\includegraphics[width=0.45\linewidth]{./img/pss_pssidx.png}
-					\caption{\label{fig:pss_pssidx}Visualization of the single chunk down-sweep calculation, performed for the element highlighted with a blue arrow. Below the partial prefix sum buffer is a virtual representation of the tree that lead to it. Green boxes in the tree mark accepted (fitting) sub trees, red boxes mark rejected ones. The vertical blue lines ends the range into which sub trees are fit. \\ Note that the rejected red subtree is the \emph{only} rejected subtree, no subtree without a box in the figure was considered, as described in the algorithm.}
+					\caption{\label{fig:pss_pssidx}Visualization of the single chunk down-sweep calculation, performed for the element highlighted with a blue arrow. Below the partial prefix sum buffer is a virtual representation of the tree that leads to it. Green boxes in the tree mark accepted (fitting) sub trees, red boxes mark rejected ones. The vertical blue lines ends the range into which sub trees are fit. \\ Note that the rejected red subtree is the \emph{only} rejected subtree, no subtree without a box in the figure was considered, as described in the algorithm.}
 				\end{figure}
 			
 				The algorithm essentially tries to fit as many, as large as possible, left sided subtrees into the index of the chunk to compute. Inputs are the chunk index, the partial prefix sum array and half of the smallest power of two that is greater or equal to the chunk count. The working operation is described in the algorithm \ref{alg:pssidx}. \\
@@ -252,43 +254,43 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 				\end{algorithm}
 			
 				This also works on non power of two chunk counts, without adjustments. \\
-				The power of two that is divided every iteration (depth level), can be imagined as a subtree that has at its leaf level a width of p2. The colored boxes in figure \ref{fig:pss_pssidx} represent the leaf level width (leaf length) of the subtrees being fit. The boxes are placed at the highest node of their respective subtree, emphasizing the focus on fitting the largest possible subtrees first, as may include smaller subtrees that then do not need testing. \\
+				The power of two that is divided every iteration (depth level), can be imagined as a subtree that has at its leaf level a width of p2. The colored boxes in figure \ref{fig:pss_pssidx} represent the leaf level width (leaf length) of the subtrees being fit. The boxes are placed at the highest node of their respective subtree, emphasizing the focus on fitting the largest possible subtrees first, which include smaller subtrees that then do not need testing. \\
 			
 		\section{Writeout}
 			\label{sec:analysis_writeout}
 			A naive approach to perform the writeout of enabled elements to the output, would be to let adjacent threads work on seperate (possibly adjacent) chunks of input data in parallel. This does not however accomodate the fact that larger width (coalesced) memory accesses perform generally much better on GPUs. The pipeline queue for the LSUs might quickly be filled and lead to warps actually stalling the SM. \\
 			
-			Alternative to the chunks per thread approach, there is a chunk per threads approach. Here one chunk of 1024 input elements are processed at once, by one full warp of threads. There is no inter warp-synchronization required, as all thread-to-thread communication is only performed intra-warp. \\
+			Alternative to the chunks per thread approach, there is a chunk per threads approach. Here one chunk of 1024 input elements is processed at once, by one full warp of threads. There is no inter warp-synchronization required, as all thread-to-thread communication is only performed intra-warp. \\
 			The algorithm chosen starts by loading 32-bit long parts of the bitmask, one per thread of the warp, into shared memory. This makes up 1024 total bits loaded, and explains the fixation on 1024 input elements processed per chunk. \\
-			To coalesce memory accesses into larger widths, for greater GPU memory performance, the threads of a warp collectively process steps of 32 input elements at once, as many as are enabled. Unfortunately this may lead to half a dormant warp per (up to) 32 element writeout, however all threads store adjacent to each other and at once, and can as such be grouped up to fewer, larger width memory transactions. \\
-			To determine wether or not a thread has to participate in a given 32 element processing step every thread can use the bitmask stored in shared memory, to determine if the bit corresponding to its position is enabled. This leaves open the issue of what position in the output a certain thread takes when writing out its element. It can be solved with a population count of one bits, over all bits positionally before the bit corresponding to the thread. I.e. elements before the own in the 32 element step, which is again an exclusive prefix sum. \\
+			To coalesce memory accesses into larger widths, for greater GPU memory performance, the threads of a warp collectively process steps of 32 input elements at once, as many as are enabled. Unfortunately this may lead to half a dormant warp per (up to) 32 element writeout, however all threads store data adjacent to each other and at once, and can as such be grouped up to fewer, larger width memory transactions. \\
+			To resolve whether or not a thread has to participate in a given 32 element processing step every thread can use the bitmask stored in shared memory to check if the bit corresponding to its position is enabled. The position in the output a certain thread takes when writing out its element can be solved with a population count of one bits. Counting over all bits positionally before the bit corresponding to the thread. These elements linearly before a threads own target element in the 32 element step form again a warp local exclusive prefix sum. \\
 			It is not necessary to calculate the prefix sum for all of the chunks processed by a warp. If the chunks are arranged in a continuous fashion, only the prefix sum of the first chunk is required. \\
 			
-			As mentioned above, the prefix sum for a chunk of elements to process may not always be actually required. For optimization of very sparse bitmasks, a secondary popcount in a seperate buffer may be useful, as processing of a chunk may be entirely skipped if the popcount entry in that chunk is zero anyway, i.e. there are no elements to process. \\
-			Because performing another popcount kernel pass is not free, it is useful that the total amount of one bits set is already known after the prefix sum up-sweep. This information can be used to determine if a second popcount pass would gain any/enough performance benefits to justify its cost. \\
+			As mentioned above, the prefix sum for a chunk of elements to process may not always be actually required. For optimization of very sparse bitmasks, a secondary popcount in a seperate buffer may be useful, as processing of a chunk may be entirely skipped if the popcount entry in that chunk is zero, i.e. there are no elements to process. \\
+			Because performing another popcount kernel pass is not free, it is useful that the total amount of one bits set is already known after the prefix sum up-sweep. This information can be used to determine if a second popcount pass would gain any or enough performance benefits to justify its cost. \\
 			Without using a histogram on chunks, for non-uniformly distributed bitmasks like a zipf or burst distribution, the amount of total one bits may not be enough to immediately tell that the optimization targeted popcount pass would be worth it. \\
 			
 			For repeating pattern bitmasks, writeout of the input elements can be optimized to always use all 32 parallel threads of a warp with adjacent writeout locations to accomodate larger width memory transactions. There are no dormant threads on a 32 element writeout threads, except possibly at the end of a chunk. \\
-			To achieve this behaviour, the threads of a warp need to process 32 elements which will be adjacent to each other in the output at once per step. After calculating the position of the first one bit per thread, they use a 32 element looup table that can be precomputed before the kernel launch on the CPU. The table denotes for every one bit, the amount of indices to skip such that 31 intermediate one bits have been skipped over. Using the intra-chunk writeout offset modulo the pattern length returns the entry to to check in the table, the value of which is added to the offset. \\
+			To achieve this behaviour, the threads of a warp need to process 32 elements which will be adjacent to each other in the output at once per step. After calculating the position of the first one bit per thread, they use a 32 element lookup table that can be precomputed before the kernel launch on the CPU. The table denotes for every one bit, the amount of indices to skip such that 31 intermediate one bits have been skipped over. Using the intra-chunk writeout offset modulo the pattern length returns the entry to check in the table, the value of which is added to the offset. \\
 		
 		\section{Streaming}
-			In the algorithm implemented through the above mentioned kernels, there exists a dependency of the writeout kernel on the prefix sum scan, which in turn requires values from the popcount kernel before being able to do its work. This dependency is however, only really true for the current, and all preceeding chunks, i.e. a writeout of a chunk somewhere in the middle of all elements, does not depend on the prefix sum of chunks behind it, or their popcount. It is merely required that all chunks up to and including itself have a finished prefix sum. \\
-			Because for some small total element counts, the popcount and prefix sum kernels might not be enough to saturate the entire device, one approach is to use streaming to start earlier with the more expensive writeout of chunks whoose prefix sum is already finished. \\
-			This way, the theoretical maximum of time that can be saved is the runtime of almost the entire popcount and prefix sum kernel. For large element counts however, there is no time saved because the popcount and prefix sum kernel themselves would be enough to saturate the device. The same approach could also be used to hide data transfer from the CPU to the GPU, by already starting computation on transferred chunks. \\
+			In the algorithm implemented through the above mentioned kernels, there exists a dependency of the writeout kernel on the prefix sum scan, which in turn requires values from the popcount kernel before being able to do its work. This dependency is, however, only really true for the current, and all preceeding chunks, i.e. a writeout of a chunk somewhere in the middle of all elements, does not depend on the prefix sum of chunks behind it, or their popcount. It is merely required that all chunks up to itself have a finished prefix sum. \\
+			Because for some small total element counts, the popcount and prefix sum kernels might not be enough to saturate the entire device, this approach is to use streaming to start earlier with the more expensive writeout of chunks whose prefix sum is already finished. \\
+			In this way, the theoretical maximum of time that can be saved is the runtime of almost the entire popcount and prefix sum kernel. For large element counts however, there is no time saved because the popcount and prefix sum kernel themselves would be enough to saturate the device. The same approach could also be used to hide data transfer from the CPU to the GPU, by already starting computation on transferred chunks. \\
 			
-			To avoid synchronization between the CPU and GPU, the existing dependency of kernels can be modeled using CUDA events, they enable efficient synchronization on the GPU itself. This way the writeout kernel for a chunk is immeditaly scheduled when the corresponding prefix sum kernel finishes. \\
+			To avoid synchronization between the CPU and GPU, the existing dependency of kernels can be modeled using CUDA events, which enable efficient synchronization on the GPU itself. This way the writeout kernel for a chunk is immediately scheduled when the corresponding prefix sum kernel finishes. \\
 		
 		\section{Summary}
-			We have seen that the conmpressstore operation can be split into three dependant tasks, i.e. the popcount, the prefix sum scan and the writeout. Workload can be made easier for the intermediate steps by introducing the concept of chunks, blocks of consecutive input data that are always processed together. \\
-			The workings of a two phase prefix sum scan are also explained, providing oppertunity to skip the second pass and instead calculate it on the fly per chunk. \\
-			Acceleration of sparse bitmasks has also been considered. For the general case, two approaches to the writeout task are described, aiming for performance imporvements via coalescing memory accesses. \\
+			In conclusion, the compressstore operation can be split into three dependent tasks, i.e. the popcount, the prefix sum scan and the writeout. Workload can be made easier for the intermediate steps by introducing the concept of chunks, which are blocks of consecutive input data that are always processed together. \\
+			The workings of a two phase prefix sum scan are also explained, providing opportunity to skip the second pass and instead calculate it on the fly per chunk. \\
+			Acceleration of sparse bitmasks has also been considered. For the general case, two approaches to the writeout task are described, aiming for performance improvements via coalescing memory accesses. \\
 		
 	\chapter{Evaluation}
 	
 		\section{Experimental Setup}
 			All implementations have been tested on a RTX Quadro 8000 GPU, installed on a server provided by the chair of database theory, running a linux operating system. This GPU has 72 SMs and 48GB of GDDR6 global memory with a theoretical bandwidth of about 672 GB/s \cite{quadrortx8000_specs}. All tested algorithms used 64-bit integers as benchmark data to perform the compressstore on. \\
 			
-			To individually test the developed kernels, ignoring any PCIe data transfer times, CUDA events were used. Placing one event just before, and another just after the kernel launch, allows precise timing of runtime on the GPU. Where possible, grid- and block-dimensions as well as chunklength were varied. The tested kernels are:\\
+			To individually test the developed kernels, ignoring any PCIe data transfer times, CUDA events were used. Placing one event just before, and another just after the kernel launch, allows precise timing of runtime on the GPU. Where possible, grid- and block-dimensions as well as chunk lengths were varied. The tested kernels are:\\
 			\begin{itemize}
 				\item Popcount kernel \\ (\texttt{3pass\_popc\_none})
 				\item Partial prefix sum kernel over all required depths, using global memory \\ (\texttt{3pass\_pss\_gmem})
@@ -296,7 +298,7 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 				\item Naive chunks per thread writeout kernel, using \textbf{p}artial and \textbf{f}ull prefix sum buffers \\ (\texttt{3pass\_\textbf{p}proc\_none} and \texttt{3pass\_\textbf{f}proc\_none})
 				\item Optimized chunk per threads writeout kernel, using \textbf{p}artial and \textbf{f}ull prefix sum buffers \\ (\texttt{3pass\_\textbf{p}proc\_true} and \texttt{3pass\_\textbf{f}proc\_true})
 			\end{itemize}
-			In all graphs where not otherwise noted, the best performing grid-/block-dimensioning and chunklength are represented. \\
+			In all graphs if not otherwise indicated, the best performing grid-/block-dimensioning and chunk lengths are represented. \\
 			
 			To provide a baseline comparison for the developed kernels, both CPU and GPU based existing approaches are tested:
 			\begin{itemize}
@@ -329,10 +331,10 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 	
 		\section{Popcount}
 			\label{sec:evaluation_popcount}
-			The popcount kernel takes up relatively little runtime in the total compressstore operation. Because there is no comparison for it and the performed actions are simple, the runtime can be considered almost negligable. \\
-			The memory access pattern for the chunkwise writeout of the popcount result deliberately accomodates for the GPUs preferrence towards larger width load/store transactions. \\
+			The popcount kernel takes up relatively little runtime in the total compressstore operation. Because there is no comparison for it and the performed actions are simple, the runtime can be considered almost negligible. \\
+			The memory access pattern for the chunkwise writeout of the popcount result deliberately accomodates for the GPUs preference towards larger width load/store transactions. \\
 			
-			Measurements show that a minimal modification of the algorithm, to utilize a 64-bit integer popc instruction, almost halves the runtime. To preserve compatibility with 32 bit long chunks, additional guards have to be inserted for the edge cases. Across 8GiB of input data, this is still only an improvement of roughly $0.25\text{ms}$ on the provided hardware. \\
+			Additional measurements show that a minimal modification of the algorithm, to utilize a 64-bit integer popcount instruction, almost halves the runtime. To preserve compatibility with 32 bit long chunks, additional guards have to be inserted for the edge cases. Across 8GiB of input data, this is still only an improvement of roughly $0.25\text{ms}$ on the provided hardware. \\
 			
 			\begin{figure}[!ht]
 				\centering
@@ -340,14 +342,14 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 				\caption{\label{fig:runtime_heatmap_dimensioning_3pass_popc_none}Runtime heatmap of various block- / grid-dimensions for the popcount kernel. Fixed at 8GiB of data and $p=0.5$ with a chunksize of 1024 bits.}
 			\end{figure}
 			
-			The heatmap \ref{fig:runtime_heatmap_dimensioning_3pass_popc_none} shows the runtime of the popcount kernel in ms, varying over some powers of two for both grid- and block-dimensioning. A slight saturation wave pattern is visible, showing that there is an optimal range of threads per SM at which the algorithm performs best. The pattern is visible as a diagonal line because both axes are logarithmic with the base two. \\
+			The heatmap in figure \ref{fig:runtime_heatmap_dimensioning_3pass_popc_none} shows the runtime of the popcount kernel in ms, varying over some powers of two for both grid- and block-dimensioning. A slight saturation wave pattern is visible, showing that there is an optimal range of threads per SM at which the algorithm performs best. The pattern is visible as a diagonal line because both axes are logarithmic with the base two. \\
 			Using less block and/or threads per block degrades performance substantially, as the device can not be saturated, and latencies can not be hidden. Using too high dimensioning the performance drops again, even if very subtly, due to increased scheduling effort with no benefit. \\
 			The most interesting observation to be made is the relatively large drop in performance when using 1024 threads per block instead of a lower power of two. The Nsight Compute report showed the difference between these to be an almost 60\% worse L1 cache hit rate from 1024 threads per block version compared to the 512 dimensioning. The dramatically decreased hit rate also caused the LSU transaction queue to fill more frequently, stalling the SM for much longer, leading to yet again decreased performance. \\
 			
 			\subparagraph{Further experimentation} on this kernel may be targeted towards increasing the usage efficiency of the LSU. \\
-			In its current form the popcount kernel loads for every thread, data from a different chunk. With older GPUs this results in the LSU loading larger widths of data than are actually required. In the best case, this extra loaded data could then be reused from cache when each thread gets to processing its next few elements. Unfortunately GPU caches, especially the L1 caches inside the SMs are very small, especially when compared to their CPU counterparts. Due to the low computational requirements of each kernel, lots of threads will be alive per SM. This will likely cause many L1 cache misses, leading to even more unneccessary loads. \\
+			In its current form the popcount kernel loads for every thread, data from a different chunk. With older GPUs this results in the LSU loading larger widths of data than are actually required. In the best case, this extra loaded data could then be reused from cache when each thread gets to processing its next few elements. Unfortunately, GPU caches, especially the L1 caches inside the SMs, are very small, even more so when considering that they are shared among all the resident threads. Due to the low computational requirements of each kernel, lots of threads will be alive per SM. This will likely cause many L1 cache misses, leading to even more unneccessary loads. \\
 			On more modern GPUs, the LSUs may perform smaller width loads of down to only 32 bytes each. This may alleviate some of the cache issues, however due to the many threads alive, the LSU's queue of transactions can quickly fill up and cause actual stalling of the SM, while threads wait for the queue to empty again. \\
-			One way to reduce the impact of this issue would be to perform adjecent loads using all 32 threads of a warp, and process consecutive chunks by sliding the window of popcounting threads over them. The little synchronization required to collect the results from every thread can easily be hidden by the many memory transactions of other threads. \\
+			One way to reduce the impact of this issue would be to perform adjacent loads using all 32 threads of a warp, and process consecutive chunks by sliding the window of popcounting threads over them. The little synchronization required to collect the results from every thread can easily be hidden by the many memory transactions of other threads. \\
 		
 		\section{Prefix Sum Scan}
 			Just like the popcount kernel, the two phase prefix sum scan, and especially the up-sweep phase take up very little of the total runtime of the compressstore operation. Additionally, both phases work only on the prefix sum buffer, which only has one entry per chunk. As chunklength increases, the amount of data touched to perform the prefix sum drop dramatically. Both phases work solely on global memory. \\
@@ -355,15 +357,15 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 			As visible in the later shown figures \ref{fig:package_runtime_over_p} and \ref{fig:package_throughput_over_datasize_normal} there is barely any difference between \texttt{3pass} packages using the stand-alone prefix sum versus that calculated by cub. This also extends to the use of the partial prefix sum. \\
 		
 			\subsection{Up-Sweep Reduction}
-				Due to the large offset and stride of the elements accessed by each thread, there is no pattern to coalesce memory transactions into, resulting in lots of unneccessary data loaded. This kernel is again very memory bound by the many transactions performed, as there is also very little computation happening. \\
+				Due to the large offset and stride of the elements accessed by each thread, there is no pattern to coalesce memory transactions into, thus resulting in lots of unneccessary data loaded. This kernel is again very memory bound by the many transactions performed, as there is also very little computation happening. \\
 				This issue is usually, and most commonly for reductions, weakened in impact by using shared memory. This would cluster kernel runs for a certain depth together into one run, and every block then needs only load the data once at the beginning and store once at the end. All intermediate depths compute on the part of the prefix sum buffer available in shared memory, at the single cycle per access cost. \\
-				Because of the very low runtime part this has in an overall package already, this optimization was not investigated further. \\
+				Because of the very low runtime part this has in an overall package, this optimization was not investigated further. \\
 			 
 			\subsection{Down-Sweep Collection}
-				The down-sweep phase of the prefix sum uses the special method explained in section \ref{sec:analysis_pss_down_sweep} to compute a per chunk final prefix sum, using the partial data from the up-sweep phase. The writeout pattern of the prefix sum result per chunk is as large as possible, accomodating again, the GPUs prefference towards larger width memory transactions. \\
-				Using this approach the data loaded to compute the prefix sum for every chunk introduces uneccessarily loaded bytes. However, the result of a load can, because adjacent threads process adjacent chunks, almost always be used by an entire warp of threads simultaneously. In the best case, other threads of the same block may reuse the data from the L1 cache. This is because for many of the depth iterations in the algorithm, the sub trees fitted into the target chunk position are shared for all of the threads chunks. \\
+				The down-sweep phase of the prefix sum utilizes the special method explained in section \ref{sec:analysis_pss_down_sweep} to compute a per chunk final prefix sum, using the partial data from the up-sweep phase. The writeout pattern of the prefix sum result per chunk is as large as possible, accomodating again, the GPUs preference towards larger width memory transactions. \\
+				Using this approach the data loaded to compute the prefix sum for every chunk introduces unneccessarily loaded bytes. However, the result of a load can, because adjacent threads process adjacent chunks, almost always be used by an entire warp of threads simultaneously. In the best case, other threads of the same block may reuse the data from the L1 cache. This is because for many of the depth iterations in the algorithm, the sub trees fitted into the target chunk position are shared for all of the thread's chunks. \\
 				
-				This kernel touches even less data then the up-sweep phase, and has an even lower runtime. Even though both phases operate only on global memory, any gains by modifying them to use shared memory, are negligible due to their low runtime contribution to the total package.
+				This kernel touches even less data than the up-sweep phase, and has an even lower runtime. Even though both phases operate only on global memory, any gains by modifying them to use shared memory, are negligible due to their low runtime contribution to the total package.
 		
 		\section{Writeout}
 			The writeout kernels take up by far the largest amount of runtime of any compressstore package. Considering the very small impact of both the popcount and prefix sum kernels, this section compares packages against each other.
@@ -374,15 +376,15 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 				\caption{\label{fig:package_runtime_over_p}Runtime of some compressstore packages over varying values of $p$, fixed at 8GiB and 1024 bit chunklength where applicable.}
 			\end{figure}
 			
-			As mentioned in the analysis of the writeout kernel, the naive chunks per thread implementation has a much worse memory access pattern than the optimized chunk per threads kernel. The measured impact of this is a roughly 10 fold increase in runtime. No package using the naive approach is shown in figure \ref{fig:package_runtime_over_p}, as it would only degrade the ability to compare the optimized version with CUB. \\
+			As mentioned in the analysis of the writeout kernel, the naive chunks per thread implementation has a much worse memory access pattern than the optimized chunk per threads kernel. The measured impact of this is a roughly 10-fold increase in runtime. No package using the naive approach is shown in figure \ref{fig:package_runtime_over_p}, as it would only degrade the ability to compare the optimized version with CUB. \\
 			
-			The figure \ref{fig:package_runtime_over_p} clearly shows the 1024 zero bit optimization working very well to drastically reduce the runtime for lower $p$ values. In the more dense ranges of $0.5$ and upward, the CUB algorithm performs slightly more favorably, taking only a few milliseconds less runtime. \\
+			As figure \ref{fig:package_runtime_over_p} clearly shows, the 1024 zero bit optimization works very well to drastically reduce the runtime for lower $p$ values. In the more dense ranges of $0.5$ and upward, the CUB algorithm performs slightly more favorably, taking only a few milliseconds less runtime. \\
 			
 			Between the stand-alone prefix sum and using the optimized CUB functionality, there is barely a noticable difference in package runtime. This holds true for full and partial processing, the latter saving in theory a few more calculations and memory loads. \\
 			
 			Regarding $p$ values around $0.5$ and higher, performance for the \texttt{3pass\_proc\_true} packages is very near that of CUB. One possible reason for the developed algorithm to still perform worse may lie in the fact that there are at many times, especially near the $p=0.5$ value, many dormant threads in a warp per writeout pass. This is caused by the internal no synchronization principle of the algorithm, as explained in section \ref{sec:analysis_writeout}. \\
-			One possible way to avoid this would be the precomputation of all writeout positions using the bitmask from shared memory, requiring another 1-2KiB of register/shared memory storage per warp of a block. The increased maximum width writeout size for every warp writeout cycle may clear space in the LSU transaction queue and reduce related stalls. Additionally the precomputation of the writeout positions can provide oppertunity to hide latency of other memory operations, as otherwise this kernel is very memory bound and stalls dozens of cycles between issuing instructions. \\
-			This optimization could give rise to another potential saving. If the whole bitmask of a chunk to precompute is loaded into shared memory, then it can also directly be used to much detect much finer empty and full bitmask patterns. Instead of investing a whole popcount run just to detect empty chunks, the precomputation step includes this at essentially no extra cost. \\
+			One possible way to avoid this would be the precomputation of all writeout positions using the bitmask from shared memory, requiring another 1-2KiB of register/shared memory storage per warp of a block. The increased maximum width writeout size for every warp writeout cycle may clear space in the LSU transaction queue and reduce related stalls. Additionally the precomputation of the writeout positions can provide opportunity to hide latency of other memory operations, as otherwise this kernel is very memory bound and stalls dozens of cycles between issuing instructions. \\
+			This optimization could give rise to another potential saving. If the whole bitmask of a chunk to precompute is loaded into shared memory, then it can also directly be used to detect much finer empty and full bitmask patterns. Instead of investing a whole popcount run just to detect empty chunks, the precomputation step includes this at essentially no extra cost. \\
 			
 			\begin{table}[!ht]
 				\centering
@@ -390,8 +392,8 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 					\hline
 					Algorithm & Uniform ($p=0.50$) & Burst ($p=0.50$) & Zipf ($p=0.29$) \\
 					\hline
-					3pass & $26.58$ & $18.90$ & $19.76$ \\
-					CUB & $23.50$ & $23.78$ & $21.59$ \\
+					3pass & 26.58 & \textbf{18.90} & \textbf{19.76} \\
+					CUB & \textbf{23.50} & 23.78 & 21.59 \\
 					\hline
 				\end{tabular}
 				\caption{\label{table:masktype_perf_comp}Runtime in milliseconds of \texttt{3pass\_fproc\_true\_cub} with its best-in-class configuration and \texttt{cub\_flagged\_biterator}, across three different masktypes. The given $p$ value of each masktype tells the total portion of one bits across the 8GiB dataset for the particular distribution.}
@@ -399,19 +401,24 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 			
 			Optimizing runtime for 1024 bit long zero streaks works well on uniformly distributed bitmasks with very low $p$ values. However the $p$ value alone can only tell when this optimization will definitely improve performance, not rule out potential in itself. In the table \ref{table:masktype_perf_comp} the runtime values for zipf and burst type bitmasks are given for the best performing CUB baseline, and the best performing \texttt{3pass} implementation. \\
 			Both the zipf and burst bitmask have a very high $p$ value, but they are not uniformly distributed, so they still score very high numbers of skippable 1024 zero bit streaks. \\
-			Performance for the burst mask is slightly higher than the zipf mask. Although this is implementation specific, the tested GPU schedules blocks with lower indices earlier, causing almost all non-skippable chunks to be processed first for the zipf mask and leaving almost only empty chunks leftover, which take a lot more computational resources than memory loads, due to the optimization. The burst mask does not always suffer this problem, due to the very long passages of only ones or only zeroes being distributed somewhat evenly across all chunks. This ensures there is always memory intensive writeout work, and computation focused skipping happening. \\
+			Performance for the burst mask is slightly higher than the zipf mask. Although this is implementation specific, the tested GPU schedules blocks with lower indices earlier, causing almost all non-skippable chunks to be processed first for the zipf mask and leaving almost only empty chunks to be processed, which take a lot more computational resources than memory loads, due to the optimization. The burst mask does not always suffer this problem, due to the very long passages of only ones or only zeroes being distributed somewhat evenly across all chunks. This ensures there is always memory intensive writeout work, and computation focused skipping happening. \\
+			In both special cases, the \texttt{3pass} kernels run faster than CUB, in the general case of uniform $p=0.5$ distribution CUB is slightly faster than \texttt{3pass}.
 		
 		\section{Streaming}
+			Comparing the streaming package, to the other CUB and \texttt{3pass} packages, reveals more differences. \\
+			
 			\begin{figure}[!ht]
 				\centering
 				\includegraphics[width=0.9\linewidth]{./img/package_throughput_over_datasize_normal.png}
 				\caption{\label{fig:package_throughput_over_datasize_normal}Throughput of some compressstore packages over increasing datasize, fixed at $p=0.5$ and 1024 bit chunklength where applicable.}
 			\end{figure}
 			
-			The streaming compressstore package performs worse than any of the packages using the optimized writeout kernel. Because it itself profits from this kernel, on very low $p$ values, streaming still runs quicker than CUB. \\
+			The streaming compressstore package performs worse than any of the packages using the optimized writeout kernel. Because it profits itself from this kernel, on very low $p$ values, streaming still runs quicker than CUB. \\
 			The figure \ref{fig:package_throughput_over_datasize_normal} shows that the streaming approach only starts maximizing its potential at around 1GiB of total data size. Various powers of two have been tried for the stream counts, every data point represents the best performing stream count at that position. \\
 			
 			The large performance loss for small datasizes is likely owing to the extra synchronization required to launch the kernels seperately on many streams. The CUDA events are placed in a way that they can be recorded and waited for on the GPU using no additonal host side processing. The small datasize of every streams portion of the total data causes large portions of the devices processing and memory power to remain unused. Most of the runtime is supposed to be used up during writeout, which has to synchronize with previous prefix sums. Per small portion alone there is just not enough work available to saturate the devices capabilities. \\
+			
+			From the figure \ref{fig:package_throughput_over_datasize_normal} it can also be seen that the \texttt{3pass} kernels perform slightly better than the CUB packages at very low datasizes. \\
 		
 		\section{Summary}
 			Overall the performance of the new hand crafted kernels matches that of CUB, the best baseline approach, very nearly in many cases. In tests involving very sparse bitmasks, or masks with ranges of low density, the performance of the developed packages is several times greater than that of CUB. \\
@@ -420,19 +427,19 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 			Some problematic areas of the \texttt{3pass} kernels have been identified, and possible starting points for future research are provided. \\
 		
 	\chapter{Conclusion}
-		As noted in the evaluation the \texttt{3pass} kernels developed in this work perform best on inputs with bitmasks that contain areas of extreme sparcity. This feature does not have to be on a global level, but easy detection through a count of selected elements is not given on local levels only. Working on these sparse bitmasks enables the created kernels to perform the compressstore operation in a faster runtime than any of the baselines. The improvement over singlethreaded CPU and GPU based approaches is present in the general uniformly distributed $p=0.5$ case as well, even though compared to the CUB baseline the new kernels perform slightly worse for these denser masks. \\
+		As noted in the evaluation the \texttt{3pass} kernels developed in this work perform best on inputs with bitmasks that contain areas of extreme scarcity. This feature does not have to be on a global level, but easy detection through a count of selected elements is not given on local levels only. Working on these sparse bitmasks enables the created kernels to perform the compressstore operation in a faster runtime than any of the baselines. The improvement over singlethreaded CPU and GPU based approaches is present in the general uniformly distributed $p=0.5$ case as well, even though compared to the CUB baseline the new kernels perform slightly worse for these denser masks. \\
 		
-		\paragraph{Related Work} Apart from the existence of CUB, that provides compressstore functionality using the GPU, there seems to be relatively little related work regarding this topic. Particularly pertaining to GPU acceleration of this issue, we have found none other accessible at the time of writing. Nevertheless, sporadic mention of the algorithm exists. \\
-		Already mentioned in the introduction was the use of the AVX-512 compressstore instruction for use in reducing problem sizes for subsequent steps in a high throughput detector employed at CERN \cite{cern_datastreaming}. This problem size reducing property is also particularly important for any GPU based database processing. As PCIe transfer is quite slow, data on the GPU should be used in the most efficient way possible, performing early projection operations using a compressstore instruction can save valuable space for parallel processing of transactions. \\
-		The Template Vector Library described in the work of \citeauthor{tvl} \cite{tvl} describes an approach to database operations that is hardware oblivious. This abstraction layer is complemented by hardware conscious plug-ins, which can then be optimized much more for their respective hardware, than a general approach permits. In a theoretical CUDA plug-in to the Template Vector Library, either CUB or \texttt{3pass} might be up for selection when issuing the operation, depending on the situation. This decision could be made using information potentially available before the compressstore operation is performed, through previous processing steps. \\
-		As to in how far these can be considered related work is up to the reader to decide. \\
+		\paragraph{Related Work} Apart from the existence of CUB, that provides compressstore functionality using the GPU, there seems to be relatively little related work regarding this topic. Particularly pertaining to GPU acceleration of this issue, we have found none other accessible at the time of writing. \\
+		Already mentioned in the introduction was the use of the AVX-512 compressstore instruction for reducing problem sizes for subsequent steps in a high throughput detector employed at CERN \cite{cern_datastreaming}. This problem size reducing property is also particularly important for any GPU based database processing. As PCIe transfer is quite slow, data on the GPU should be used in the most efficient way possible. Performing early projection operations by using a compressstore instruction can save valuable space for parallel processing of transactions. \\
+		The Template Vector Library described in the work of \citeauthor{tvl} \cite{tvl} describes an approach to database operations that is hardware oblivious. This abstraction layer is complemented by hardware conscious plug-ins, which can then be optimized much more for their respective hardware, than a general approach permits. In a theoretical CUDA plug-in to the Template Vector Library, either CUB or \texttt{3pass} might be up for selection when issuing the operation, depending on the situation. This decision can be made by using information potentially available through previous processing steps, beforethe compressstore operation is performed. \\
 
-		\paragraph{Future Work} The evaluation section already mentioned some possible approaches to further increase throughput of the kernels used in \texttt{3pass}. Specifically for those regarding the first two preperation passes, popcount and prefix sum creation, the fraction of the total runtime is so small that most improvements would yield little impact. Nevertheless for use cases where many smaller compressstore utilizing transactions are performed in parallel on the same GPU, these optimization might quickly add up. \\
+		\paragraph{Future Work} The evaluation section already mentioned some possible approaches to further increase throughput of the kernels used in \texttt{3pass}. Specifically for those regarding the first two preparation passes, popcount and prefix sum creation, the fraction of the total runtime is so small that most improvements would yield little impact. Nevertheless for operations where many smaller compressstore utilizing transactions are performed in parallel on the same GPU, these optimization might quickly add up. \\
 		As explained in section \ref{sec:evaluation_popcount} when adopting a more rigid chunk length sizing, 64-bit popcount instructions prove almost twice as fast as 32-bits. In the usual vein of optimizing memory accesses towards broader transactions, the per warp loads performed on the bitmask might benefit from being adjacent, relying less on the cache and giving more space to the LSUs. We do not think the extra synchronization required to perform the popcount of adjacently loaded bitmask data will be noticable. \\
-		To improve memory efficiency for the prefix sum calculation as well, shared memory may be used to accelerate the reduction into less kernel launches. At the same time as the reduction, would be a good time to perform a histogram creation for some rudimentary types of mask chunks. The histogram would give a better understanding of the density distribution of selected elements in the mask. This could be used to make a more informed decision wether to use CUB or \texttt{3pass} for the operation, before the bulk of the writeout work actually has to be invested. \\
-		Aside from the mentioned static pattern optimization through a table of skips in the mask, the general case could benefit from a similar approach of keeping the whole 32 threads of a warp alive at writeout time. Precomputation of this extra information required is possible directly in the writeout phase, using data already available in shared memory. If the same stage could replace the second popcount needed for long 0 bit streak optimization is another thing in need of measurement. \\
+		To improve memory efficiency for the prefix sum calculation as well, shared memory may be used to accelerate the reduction into less kernel launches. During this shared memory reduction a histogram may be created for some rudimentary types of mask chunks. The histogram would give a better understanding of the density distribution of selected elements in the mask. This could be used to make a more informed decision on whether to use CUB or \texttt{3pass} for the operation, before the bulk of the writeout work actually has to be invested. \\
+		Aside from the mentioned static pattern optimization through a table of skips in the mask, the general case could benefit from a similar approach of keeping the whole 32 threads of a warp alive at writeout time. Precomputation of this extra information required is possible directly in the writeout phase, using data already available in shared memory. If the same stage could replace the second popcount needed for long 0 bit streak optimization is another issue in need of further investigation. \\
 		
 	\chapter*{Bibliography}
+		\markr{note that all online resources are available as of submission date?}\\
 		\printbibliography[heading=none]
 	
 \end{document}
