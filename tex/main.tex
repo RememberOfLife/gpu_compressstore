@@ -44,9 +44,16 @@
 	\supervisor{Prof. Dr.-Ing. habil. Dirk Habich \and Dipl.-Inf. Johannes Fett}
 	\professor{Prof. Dr.-Ing. habil. Wolfgang Lehner}
 	\maketitle
-	%\confirmation
+	\confirmation
 	
 	\chapter*{Abstract}
+		\begin{itemize}
+			\item work deals with compressstore on gpu
+			\item analyze performance considerations
+			\item compare to existing cub
+			\item match cub in general case by ~2ms
+			\item improvement over cub in sparse (edge/special) cases
+		\end{itemize}
 	
 	\tableofcontents
 	
@@ -94,15 +101,15 @@
 				\begin{figure}[!ht]
 					\centering
 					\includegraphics[width=0.95\linewidth]{./img/gpu_architecture.png}
-					\caption{\label{fig:gpu_architecture}Simplified GPU architecture diagram. In reality the realtive position and size of many components frequently changes with each generation. Some parts are omitted for clarity. The actual number of cuda cores per streaming multiprocessor (SM) is higher in real devices.}
+					\caption{\label{fig:gpu_architecture}Simplified GPU architecture diagram. In reality the relative position and size of many components frequently changes with each generation. Some parts are omitted for clarity. The actual number of cuda cores per streaming multiprocessor (SM) is higher in real devices.}
 				\end{figure}
-				GPUs have, as their name implies, been originally devised as a dedicated device for graphical computation workloads, especially in realtime scenarios. They have long since their inception also seen much use as accelerators for general purpose computing workloads, many of which benefit greatly from the high parallelism they provide. \\
+				GPUs have, as their name implies, been originally devised as a dedicated device for graphical computation workloads, especially in realtime scenarios \cite{cuda_arch}. They have long since their inception also seen much use as accelerators for general purpose computing workloads, many of which benefit greatly from the high parallelism they provide. \\
 				Modern GPU architecture consists, across different hardware manufacturers, of mostly differently named but functionally very similar components, the basics of which are described here, to give a brief overview of the structures available to improve performance. \\
 				
 				Similar to the RAM of a processor, a typical Nvidia GPU has a global memory shared among all of its processing power, even device intrinsic management functions. Between interactions of processing elements and the global memory is an L2 cache and multiple memory controllers. \\
 				Communication with the host is performed through the PCIe host interface. \\
 				
-				The compute unified device architecture (CUDA) of all recent Nvidia GPUs allows generalisations about the design of the GPUs processing power, helping developers easier target multiple devices with fine tuned applications. \\
+				The compute unified device architecture (CUDA) of all recent Nvidia GPUs \cite{cuda_smcc} allows generalisations about the design of the GPUs processing power, helping developers easier target multiple devices with fine tuned applications. \\
 				
 				When executing code on the GPU, several parallel and concurrent threads all execute the same code. Discernible difference for accessing inputs and outputs is provided solely through a running count across all threads of a workload. More on this and the use of branches in \ref{sec:gpu_execution_model}. \\
 				When launching a kernel (the workload) that is meant to run on the GPU, the user specifies a number of blocks (grid dimension) and a number of threads per block (block dimension) for the GPU to launch. \\
@@ -113,8 +120,8 @@
 				
 				The CUDA cores available in every SM vary across different GPUs and GPU architecture generations, but in general there are many integer and floating point arithmetic units available, with a small number of specialized units available for computing tensor or raytracing operations as well as several hardware accelerated math functions. \\
 				
-				Memory accesses of warp are grouped together into larger width accesses where possible, and performed and processed by the specialized load/store units. There exists a small L1 cache for global memory operations, which shares a configurable amount of space with the per SM shared memory. Threads on the SM can read from and write to shared memory effectively in only one cycle, however there are serialization limitations if multiple threads perform writes on the same location. \\
-				Memory performance intensive applications that issue a lot of read/write instructions to the load store units (LSU) may quickly suffer of warps stalling due to a reached pipeline limit for the amount of operations in transit per LSU, especially if the widths of memory accesses are smaller, which leads to less coalesced memory accesses and therefore more individual transactions. \\
+				Memory accesses are grouped together into larger width transactions where possible, and performed and processed by the specialized load/store units. There exists a small L1 cache for global memory operations, which shares a configurable amount of space with the per SM shared memory. Threads on the SM can read from and write to shared memory effectively in only one cycle, however there are serialization limitations if multiple threads perform writes on the same location. \\
+				Memory performance intensive applications that issue a lot of read/write instructions to the load store units (LSU) may quickly suffer of warps stalling due to a reached pipeline limit for the amount of operations in transit per LSU, especially if the widths of memory accesses are smaller, which leads to less coalesced memory accesses and therefore more individual transactions \cite{cuda_memorycoalescing}. \\
 			
 			\subsection{Execution Model}
 				\label{sec:gpu_execution_model}
@@ -279,32 +286,32 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 			
 			To individually test the developed kernels, ignoring any PCIe data transfer times, CUDA events were used. Placing one event just before, and another just after the kernel launch, allows precise timing of runtime on the GPU. Where possible, grid- and block-dimensions as well as chunklength were varied. The tested kernels are:\\
 			\begin{itemize}
-				\item Popcount kernel (\texttt{3pass\_popc\_none})
-				\item Partial prefix sum kernel over all required depths, using global memory (\texttt{3pass\_pss\_gmem})
-				\item Per chunk prefix sum completion, using global memory (\texttt{3pass\_pss2\_gmem})
-				\item Naive chunks per thread writeout kernel, using \textbf{p}artial and \textbf{f}ull prefix sum buffers (\texttt{3pass\_\textbf{p}proc\_none} and \texttt{3pass\_\textbf{f}proc\_none})
-				\item Optimized chunk per threads writeout kernel, using \textbf{p}artial and \textbf{f}ull prefix sum buffers (\texttt{3pass\_\textbf{p}proc\_true} and \texttt{3pass\_\textbf{f}proc\_true})
+				\item Popcount kernel \\ (\texttt{3pass\_popc\_none})
+				\item Partial prefix sum kernel over all required depths, using global memory \\ (\texttt{3pass\_pss\_gmem})
+				\item Per chunk prefix sum completion, using global memory \\ (\texttt{3pass\_pss2\_gmem})
+				\item Naive chunks per thread writeout kernel, using \textbf{p}artial and \textbf{f}ull prefix sum buffers \\ (\texttt{3pass\_\textbf{p}proc\_none} and \texttt{3pass\_\textbf{f}proc\_none})
+				\item Optimized chunk per threads writeout kernel, using \textbf{p}artial and \textbf{f}ull prefix sum buffers \\ (\texttt{3pass\_\textbf{p}proc\_true} and \texttt{3pass\_\textbf{f}proc\_true})
 			\end{itemize}
 			In all graphs where not otherwise noted, the best performing grid-/block-dimensioning and chunklength are represented. \\
 			
 			To provide a baseline comparison for the developed kernels, both CPU and GPU based existing approaches are tested:
 			\begin{itemize}
-				\item CPU based singlethread (\texttt{cpu})
-				\item CPU AVX base singlethread (\texttt{avx512})
-				\item GPU based singlethread (\texttt{single\_thread})
-				\item GPU based CUB flagged operation, using a bytemask (\texttt{cub\_flagged\_bytemask})
-				\item GPU based CUB flagged operation, using an iterator over a bitmask (\texttt{cub\_flagged\_biterator})
-				\item GPU based CUB prefix sum scan (\texttt{cub\_pss})
+				\item CPU based singlethread \\ (\texttt{cpu})
+				\item CPU AVX base singlethread \\ (\texttt{avx512})
+				\item GPU based singlethread \\ (\texttt{single\_thread})
+				\item GPU based CUB flagged operation, using a bytemask \\ (\texttt{cub\_flagged\_bytemask})
+				\item GPU based CUB flagged operation, using an iterator over a bitmask \\ (\texttt{cub\_flagged\_biterator})
+				\item GPU based CUB prefix sum scan \\ (\texttt{cub\_pss})
 			\end{itemize}
 			
 			To provide a more complete comparison against the baselines and each other, some graphs use \emph{packages}, i.e. grouping runtimes of kernels as they would be used in a proper scenario to perform the compressstore operation. The packages represented are:
 			\begin{itemize}
-				\item Streaming using the best stream count and best in class grid/block/chunk-dimensioning (\texttt{async\_streaming\_3pass})
-				\item Stand-alone processing using the optimized writeout kernel and two phase prefix sum calculation (\texttt{3pass\_fproc\_true\_sa})
+				\item Streaming using the best stream count and best in class grid/block/chunk-dimensioning \\ (\texttt{async\_streaming\_3pass})
+				\item Stand-alone processing using the optimized writeout kernel and two phase prefix sum calculation \\ (\texttt{3pass\_fproc\_true\_sa})
 					\subitem = 2 * \texttt{3pass\_popc\_none} + \texttt{3pass\_pss\_gmem} + \texttt{3pass\_pss2\_gmem} + \texttt{3pass\_fproc\_true}
-				\item Processing using the optimized writeout kernel and a partial prefix sum (\texttt{3pass\_pproc\_true\_sa})
+				\item Processing using the optimized writeout kernel and a partial prefix sum \\ (\texttt{3pass\_pproc\_true\_sa})
 					\subitem = \texttt{3pass\_popc\_none} + \texttt{3pass\_pss\_gmem} + \texttt{3pass\_popc\_none} + \texttt{3pass\_fproc\_true}
-				\item Processing using the optimized writeout kernel and a full prefix sum provided by CUB (\texttt{3pass\_fproc\_true\_cub})
+				\item Processing using the optimized writeout kernel and a full prefix sum provided by CUB \\ (\texttt{3pass\_fproc\_true\_cub})
 					\subitem = \texttt{3pass\_popc\_none} + \texttt{cub\_pss} + \texttt{3pass\_popc\_none} + \texttt{3pass\_fproc\_true}
 			\end{itemize}
 	
@@ -317,6 +324,7 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 		Both CPU based approaches, as well as the GPU based \texttt{single\_thread}, performed at all times worse than all other kernels that properly utilize the GPU's parallelism. \\
 	
 		\section{Popcount}
+			\label{sec:evaluation_popcount}
 			The popcount kernel takes up relatively little runtime in the total compressstore operation. Because there is no comparison for it and the performed actions are simple, the runtime can be considered almost negligable. \\
 			The memory access pattern for the chunkwise writeout of the popcount result deliberately accomodates for the GPUs preferrence towards larger width load/store transactions. \\
 			
@@ -333,7 +341,6 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 			The most interesting observation to be made is the relatively large drop in performance when using 1024 threads per block instead of a lower power of two. The Nsight Compute report showed the difference between these to be an almost 60\% worse L1 cache hit rate from 1024 threads per block version compared to the 512 dimensioning. The dramatically decreased hit rate also caused the LSU transaction queue to fill more frequently, stalling the SM for much longer, leading to yet again decreased performance. \\
 			
 			\subparagraph{Further experimentation} on this kernel may be targeted towards increasing the usage efficiency of the LSU. \\
-			
 			In its current form the popcount kernel loads for every thread, data from a different chunk. With older GPUs this results in the LSU loading larger widths of data than are actually required. In the best case, this extra loaded data could then be reused from cache when each thread gets to processing its next few elements. Unfortunately GPU caches, especially the L1 caches inside the SMs are very small, especially when compared to their CPU counterparts. Due to the low computational requirements of each kernel, lots of threads will be alive per SM. This will likely cause many L1 cache misses, leading to even more unneccessary loads. \\
 			On more modern GPUs, the LSUs may perform smaller width loads of down to only 32 bytes each. This may alleviate some of the cache issues, however due to the many threads alive, the LSU's queue of transactions can quickly fill up and cause actual stalling of the SM, while threads wait for the queue to empty again. \\
 			One way to reduce the impact of this issue would be to perform adjecent loads using all 32 threads of a warp, and process consecutive chunks by sliding the window of popcounting threads over them. The little synchronization required to collect the results from every thread can easily be hidden by the many memory transactions of other threads. \\
@@ -407,18 +414,19 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 			All CPU and GPU based single thread approaches perform much worse than both CUB or \texttt{3pass}. \\
 			
 			Some problematic areas of the \texttt{3pass} kernels have been identified, and possible starting points for future research are provided. \\
-			
-			\markr{test cub under multi use load, improvement?}\\
 		
 	\chapter{Conclusion}
 		As noted in the evaluation the \texttt{3pass} kernels developed in this work perform best on inputs with bitmasks that contain areas of extreme sparcity. This feature does not have to be on a global level, but easy detection through a count of selected elements is not given on local levels only. Working on these sparse bitmasks enables the created kernels to perform the compressstore operation in a faster runtime than any of the baselines. The improvement over singlethreaded CPU and GPU based approaches is present in the general uniformly distributed $p=0.5$ case as well, even though compared to the CUB baseline the new kernels perform slightly worse for these denser masks. \\
 		
 		\paragraph{Related Work} Apart from the existence of CUB, that provides compressstore functionality using the GPU, there seems to be relatively little related work regarding this topic. Particularly pertaining to GPU acceleration of this issue, we have found none other accessible at the time of writing. Nevertheless, sporadic mention of the algorithm exists. \\
-		Already mentioned in the introduction was the use of the AVX-512 compressstore instruction for use in reducing problem sizes for subsequent steps in a high throughput detector employed at CERN \cite{cern_datastreaming}. This problem size reducing property is also particularly important for any GPU based database processing. As PCIe transfer is quite slow, data on the GPU should be used in the most efficient way possible, performing early projection operations using a compressstore instruction can save valuable space for parallel processing of transactions. \markr{does 3pass shine here, by not forcing a whole wave?}\\
+		Already mentioned in the introduction was the use of the AVX-512 compressstore instruction for use in reducing problem sizes for subsequent steps in a high throughput detector employed at CERN \cite{cern_datastreaming}. This problem size reducing property is also particularly important for any GPU based database processing. As PCIe transfer is quite slow, data on the GPU should be used in the most efficient way possible, performing early projection operations using a compressstore instruction can save valuable space for parallel processing of transactions. \\
 		The Template Vector Library described in the work of \citeauthor{tvl} \cite{tvl} describes an approach to database operations that is hardware oblivious. This abstraction layer is complemented by hardware conscious plug-ins, which can then be optimized much more for their respective hardware, than a general approach permits. In a theoretical CUDA plug-in to the Template Vector Library, either CUB or \texttt{3pass} might be up for selection when issuing the operation, depending on the situation. This decision could be made using information potentially available before the compressstore operation is performed, through previous processing steps. \\
 		As to in how far these can be considered related work is up to the reader to decide. \\
 
-		\paragraph{Future Work} \markr{TODO}\\
+		\paragraph{Future Work} The evaluation section already mentioned some possible approaches to further increase throughput of the kernels used in \texttt{3pass}. Specifically for those regarding the first two preperation passes, popcount and prefix sum creation, the fraction of the total runtime is so small that most improvements would yield little impact. Nevertheless for use cases where many smaller compressstore utilizing transactions are performed in parallel on the same GPU, these optimization might quickly add up. \\
+		As explained in section \ref{sec:evaluation_popcount} when adopting a more rigid chunk length sizing, 64-bit popcount instructions prove almost twice as fast as 32-bits. In the usual vein of optimizing memory accesses towards broader transactions, the per warp loads performed on the bitmask might benefit from being adjacent, relying less on the cache and giving more space to the LSUs. We do not think the extra synchronization required to perform the popcount of adjacently loaded bitmask data will be noticable. \\
+		To improve memory efficiency for the prefix sum calculation as well, shared memory may be used to accelerate the reduction into less kernel launches. At the same time as the reduction, would be a good time to perform a histogram creation for some rudimentary types of mask chunks. The histogram would give a better understanding of the density distribution of selected elements in the mask. This could be used to make a more informed decision wether to use CUB or \texttt{3pass} for the operation, before the bulk of the writeout work actually has to be invested. \\
+		Aside from the mentioned static pattern optimization through a table of skips in the mask, the general case could benefit from a similar approach of keeping the whole 32 threads of a warp alive at writeout time. Precomputation of this extra information required is possible directly in the writeout phase, using data already available in shared memory. If the same stage could replace the second popcount needed for long 0 bit streak optimization is another thing in need of measurement. \\
 		
 	\chapter*{Bibliography}
 		\printbibliography[heading=none]
