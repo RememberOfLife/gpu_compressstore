@@ -58,16 +58,16 @@
 	\tableofcontents
 	
 	\chapter{Introduction}
-		With the rise of increasingly capable computing hardware and often even faster growing data collection mechanisms, modern data refinement is not an easy task anymore. Recent years have also shown a trend of using general purpose graphics processing units (GPUs or GPGPUs) to accelerate traditional easily parallelizable workloads. \\
+		With the rise of increasingly capable computing hardware and often even faster growing data collection mechanisms, modern data refinement too is becoming more complex and computationally expensive. Recent years have shown a trend of using general purpose graphics processing units (GPUs or GPGPUs) to accelerate traditional easily parallelizable workloads. \\
 		
-		The compressstore operation that this work deals with fitting to the GPU, also has applications in the mentioned data refinement workflows. \\
-		Most obvious is the use as a database projection operation, selecting only some columns of data from a larger set. This non general operational mode of a compressstore can be optimized for every given pattern at runtime. \\
-		A more general use might be to reduce the size of a problem between single steps of a process. This may be after certain filters have been applied to an intermediate dataset and excess data is best discarded to reduce unnecessary workload on successive processing steps. When the data to remove is not partioned in a regular fashion the issue calls for the compressstore operation. \\
+		This work deals with fitting the compressstore operation to the GPU. The compressstore operation also has applications in the mentioned data refinement workflows. \\
+		Most obvious is the use as a database projection operation, selecting only some columns of data from a larger set. This non-general operational mode of a compressstore can be optimized for every given pattern at runtime. \\
+		A more general use might be to reduce the size of a problem between single steps of a process. This may be after certain filters have been applied to an intermediate dataset and excess data is best discarded to reduce unnecessary workload on successive processing steps. When the data to remove is not partitioned in a regular fashion the issue calls for the compressstore operation. \\
 		Similar use, although on a different granularity, is required at enormous data collection facilities such as a CERN detector \cite{cern_datastreaming}. \\
 		
-		Viability of this relies heavily on fast runtimes for a procedure designed to save even more time overall. Catering to this need is the massively parallel computing capability of modern GPUs, which can be utilized to a great extent with the compressstore operation. This parallelization requires careful tuning of GPU specific parameters to realize the highest performance gains. \\
+		Viability of the compresstores ability to save even more time overall relies heavily on fast runtimes of the procedure itself. Catering to this need is the massively parallel computing capability of modern GPUs, which can be utilized to a great extent with the compressstore operation. This parallelization requires careful tuning of GPU specific parameters to realize the highest performance gains. \\
 		
-		Regarding database uses, the input masks used for the operation may not always be uniformly distributed. Some of these non uniform masktypes may contain even more potential for optimization. \\
+		Regarding database uses, the input masks used for the operation may not always be uniformly distributed. Some of these non-uniform masktypes may contain even more potential for optimization. \\
 		
 	\chapter{Foundations}
 		In this section we will introduce key concepts required to understand the work and its functioning. Specifically we start by defining the compressstore problem and its nuances, before providing a broad overview of the Nvidia CUDA GPU architecture and execution model as it was used to develop and compare the implementations. For usage as baseline comparisons we also briefly look at AVX and the existing CUB implementation.
@@ -76,16 +76,17 @@
 			\begin{figure}[!ht]
 				\centering
 				\includegraphics[width=0.9\linewidth]{./img/compressstore_operation.png}
-				\caption{\label{fig:compressstore_operation}Visualized compressstore operation on a 16 element long data vector and bitmask. Any values of "Don't Care" elements in the output is not relevant to the operation.}
+				\caption{\label{fig:compressstore_operation}Visualized compressstore operation on a 16 element long data vector and bitmask. Any values of "Don't Care" elements in the output are not relevant to the operation. The output represents only those elements from the input for which there was an enabled bit corresponding in the mask (marked green). There are no spaces of masked out (marked red) elements between the output elements.}
 			\end{figure}
-			The compressstore operation is used to store certain elements of an input vector contiguously in memory. Using the provided bitmask the operation only selects elements for writeout that have a corresponding enabled bit (set to one) in the bitmask. Potential gaps between enabled elements are removed, thereby left packing the results into the output. The length of the output vector will always be less than or equal to that of the input vector. \\
+			The compressstore operation is used to store certain elements of an input vector contiguously in memory, see figure \ref{fig:compressstore_operation}. Using the provided bitmask the operation only selects elements for writeout that have a corresponding enabled bit (set to one) in the bitmask. Potential gaps between enabled elements are removed, thereby left packing the results into the output. The length of the output vector will always be less than or equal to that of the input vector. \\
 			Even though not all applications of this operation require the same assumptions, in this work a few common ones are made.
 			\begin{itemize}
 				\item The input vector of elements may not be overwritten.
-				\item The order of elements is kept stable through the writeout process.
+				\item The order of selected elements is kept stable through the writeout process.
 				\item There is no information about the bitmask in advance.
+				\item We do not care about the contents of output elements that were not selected.
 			\end{itemize}
-			Parallelization of this operation is not-entirely trivial due to requiring for every input element the writeout location in the output vector as a count of the previous enabled inputs, before processing can occur. \\
+			Parallelization of this operation is not entirely trivial due every input element requiring the writeout location in the output vector as a count of the previous enabled inputs, before processing can occur. \\
 			Depending on the density and distribution of bits set to one in the bitmask there are various special cases, some of which may benefit from specific acceleration. \\
 			These include but are not limited to:
 			\begin{itemize}
@@ -94,45 +95,48 @@
 				\item burst masks as they might spawn from a tablescan over data with temporal dependency
 				\item or repeating pattern bitmasks, useful for performing a project operation.
 			\end{itemize}
-			The overall density of a bitmask in terms of a ration $\frac{\text{one bit count}}{\text{total element count}}$ will be called $p$ in the rest of this work. It should be noted that this does not give any indication as to what distribution is present in the bitmask. A bitmask where the entirety of the second half of the bitmask is set to one bits and no others, will still yield $p=0.5$ just like a uniform random distribution might. \\
+			ALl of which will see discussion in this work. \\
+			The overall density of a bitmask in terms of a ratio $\frac{\text{one bit count}}{\text{total element count}}$ will be called $p$ from here on. It should be noted that this does not give any indication as to what distribution is present in the bitmask. A bitmask where the entirety of the second half of the bitmask is set to one bits and the first half set to zeroes, will still yield $p=0.5$ just like a uniform random distribution might. \\
 		
 		\section{GPU Computing}
 			\subsection{Architecture}
+				GPUs have, as their name implies, been originally devised as a dedicated device for graphical computation workloads, especially in realtime scenarios \cite{cuda_arch}. They have since their inception also seen much use as accelerators for general purpose computing workloads, many of which benefit greatly from the high parallelism they provide. \\
+				Modern GPU architecture consists, across different hardware manufacturers, of mostly differently named but functionally somewhat similar components \cite{nvidia_vs_amd_arch}. The basics of the CUDA architecture are described here, in order to give a brief overview of the structures available to improve performance on NVIDIA GPUs. \\
+				
 				\begin{figure}[!ht]
 					\centering
 					\includegraphics[width=0.95\linewidth]{./img/gpu_architecture.png}
 					\caption{\label{fig:gpu_architecture}Simplified GPU architecture diagram. In reality the relative position and size of many components frequently changes with each generation. Some parts are omitted for clarity. The actual number of cuda cores per streaming multiprocessor (SM) is higher in real devices.}
 				\end{figure}
-				GPUs have, as their name implies, been originally devised as a dedicated device for graphical computation workloads, especially in realtime scenarios \cite{cuda_arch}. They have long since their inception also seen much use as accelerators for general purpose computing workloads, many of which benefit greatly from the high parallelism they provide. \\
-				Modern GPU architecture consists, across different hardware manufacturers, of mostly differently named but functionally very similar components, the basics of which are described here, to give a brief overview of the structures available to improve performance. \\
 				
-				Similar to the RAM of a processor, a typical Nvidia GPU has a global memory shared among all of its processing power, even device intrinsic management functions. Between interactions of processing elements and the global memory is an L2 cache and multiple memory controllers. \\
+				Similar to the RAM of a processor, a typical Nvidia GPU has a global memory shared among all of its processing power. This is also used by device intrinsic management functions. Between interactions of processing elements and the global memory there exists an on-chip L2 cache and multiple memory controllers to handle the transactions. \\
 				Communication with the host is performed through the PCIe host interface. \\
 				
-				The compute unified device architecture (CUDA) of all recent Nvidia GPUs \cite{cuda_smcc} allows generalisations about the design of the GPUs processing power, helping developers easier target multiple devices with fine tuned applications. \\
+				The compute unified device architecture (CUDA) of all recent Nvidia GPUs allows generalisations about the design of the GPUs processing power, helping developers to easier target multiple devices with fine tuned applications. \cite{cuda_smcc} \\
+				The concepts covered in the following part of this section are also explained in the Fermi Generation Whitepaper from NVIDIA \cite{fermi_whitepaper}, and one of many publicly available university lectures on the topic \cite{gpu_lecture}.
 				
-				When executing code on the GPU, several parallel and concurrent threads all execute the same code. Discernible difference for accessing inputs and outputs is provided solely through a running count across all threads of a workload. More on this and the use of branches in \ref{sec:gpu_execution_model}. \\
+				When executing code on the GPU, several parallel and concurrent threads all execute the same code. Discernible difference for accessing inputs and outputs is provided solely through a running count across all threads of a workload. More on this and the use of branches in section \ref{sec:gpu_execution_model}. \\
 				When launching a kernel (the workload) that is meant to run on the GPU, the user specifies a number of blocks (grid dimension) and a number of threads per block (block dimension) for the GPU to launch. \\
-				Scheduling of blocks on the GPU is managed by the GigaThread engine, specially designed to handle the immensely parallel tasks assigned to GPUs. It distributes the outstanding blocks of running kernels onto the many streaming multiprocessors (SMs) of the GPU, which is the key structure of processing, of which several dozens can be found in modern devices. When a block of threads is assigned to an SM, the threads it contains are grouped into warps of 32 each. \\
+				Scheduling of blocks on the GPU is managed by the GigaThread engine, specially designed by NVIDIA to handle the immensely parallel tasks assigned to GPUs. It distributes the outstanding blocks of running kernels onto the many streaming multiprocessors (SMs) of the GPU. The SMs are the key structure of processing, of which several dozens can be found in modern devices. When a block of threads is assigned to an SM, the threads it contains are grouped into warps of 32 each. \markr{REF} \\
 				
-				An SM contains many so called CUDA cores, which are the real execution units used by warps running on the SM. Every thread alive on an SM has its own registers in a very large register file that serves the entire SM. To distribute the work that threads want to perform across the CUDA cores the SM uses several warp schedulers, that assign a whole warp of threads to execution units respective of the instruction that is being executed. \\
-				Because every thread has effectively its own register file, there is a zero overhead scheduling of warps in every SM. As long as there are warps available to schedule, i.e. warps that have instructions for which there are currently available execution units in the SM, the warp schedulers issue the warps to their execution units between cycles, such that in every cycle actual work gets done. \\
+				Each SM contains many so called CUDA cores, which are the real execution units used by warps running on the SM. Every thread alive on an SM has its own registers in a very large register file that serves the entire SM. To distribute the work that threads want to perform across the CUDA cores the SM uses several warp schedulers, that assign a whole warp of threads to execution units respective of the instruction that is being executed. \\
+				Because every thread has effectively its own register file, there is a zero overhead scheduling of warps in every SM. As long as there are warps available to schedule, i.e. warps that have instructions for which there are currently available execution units in the SM, the warp schedulers issue the warps to their execution units between cycles, such that in every cycle actual work gets done.\markr{REF} \\
 				
-				The CUDA cores available in every SM vary across different GPUs and GPU architecture generations, but in general there are many integer and floating point arithmetic units available, with a small number of specialized units available for computing tensor or raytracing operations as well as several hardware accelerated math functions. \\
+				The CUDA cores available in every SM vary across different GPUs and GPU architecture generations, but in general there are many integer and floating point arithmetic units available, with a small number of specialized units available for computing tensor or raytracing operations as well as several hardware accelerated math functions. \markr{REF} \\
 				
 				Memory accesses are grouped together into larger width transactions where possible, and performed and processed by the specialized load/store units. There exists a small L1 cache for global memory operations, which shares a configurable amount of space with the per SM shared memory. Threads on the SM can read from and write to shared memory effectively in only one cycle, however there are serialization limitations if multiple threads perform writes on the same location. \\
-				Memory performance intensive applications that issue a lot of read/write instructions to the load store units (LSU) may quickly suffer of warps stalling due to a reached pipeline limit for the amount of operations in transit per LSU, especially if the widths of memory accesses are smaller, which leads to less coalesced memory accesses and therefore more individual transactions \cite{cuda_memorycoalescing}. \\
+				Memory performance intensive applications that issue a lot of read/write instructions to the load store units (LSU) may quickly suffer of warps stalling due to a reached pipeline limit for the amount of operations in transit per LSU. This applies especially if the widths of memory accesses are smaller, which leads to less coalesced memory accesses and therefore more individual transactions. \cite{cuda_memorycoalescing} \\
 			
 			\subsection{Execution Model}
 				\label{sec:gpu_execution_model}
 				As touched on in the architecture section, all threads of a kernel execute the same code. In the case of CUDA this is written using a C++ extension and the nvcc compiler provided by Nvidia. Such a function, that is executed by all threads, is called a kernel. To create differentiation between threads, intrinsic values for the block number/dimension and thread number inside a block can be used together to create a global thread identification. \\
-				The grid and block dimensioning is not limited to one dimension, they can seperately be each up to three dimensional. \\
+				The grid and block dimensioning is not limited to one dimension but each can, seperately, be up to three dimensional. \markr{REF} \\
 				
-				Instructions are usually, excluding certain cases on newer devices, executed in lockstep for the entire warp at once. The single instruction multiple threads (SIMT) model of execution functions as a natural, more parallel, progression from single instruction multiple data (SIMD) as it is used on many CPUs. \\
-				The SIMT model allows actual branching of code, contrary to the SIMD approach of only masking out operations of disabled elements during a vector operation. Branches in the code are serialized through branch predication, and thus very time intensive. All threads not participating in a given branch effectively perform NOPs while the other threads execute. In excess this behaviour is called warp (execution) divergence and can cause large performance losses. \\
+				Instructions are, usually, excluding certain cases on newer devices, executed in lockstep for the entire warp at once. The single instruction multiple threads (SIMT) model of execution functions as a natural, more parallel, progression from single instruction multiple data (SIMD) as it is used on many CPUs. \markr{REF} \\
+				The SIMT model allows actual branching of code, contrary to the SIMD approach of only masking out operations of disabled elements during a vector operation. Branches in the code are serialized through branch predication, and thus very time intensive. All threads not participating in a given branch effectively perform NOPs while the other threads execute. In excess this behaviour is called warp (execution) divergence and can cause large performance losses. \markr{REF} \\
 				
 				Kernel launches and other CUDA library functions, such as copying memory between the host and device may also accept a stream argument. By default these operations are serialized in the default stream. Using non-default streams they can be parallelized on the GPU, and furthermore partially synchronized using events that are triggered and waited for by streams. \\
-				Using streams may enable partial processing of data while copying the rest from the host side to the device still. Or when using events, enables dependencies between larger chains of kernel launches. \\
+				Using streams may enable partial processing of data while copying the rest from the host side to the device still. Or when using events, enables dependencies between larger chains of kernel launches. \cite{cuda_streams_devblog, cuda_streams_events} \\
 				
 				Minimal exemplary code for an increment kernel is provided below. For further information refer to the comprehensive CUDA programming guide \cite{cuda_programmingguide}.
 				\begin{lstlisting}[caption=Device Side: Increment Kernel]
@@ -155,60 +159,60 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 				
 			
 		\section{AVX}
-			Advanced Vector Extensions (AVX) \cite{avx} are SIMD extensions to the x86 instruction set architecture supported by many modern CPUs. AVX instructions are essentially hardware acceleration features for operations that otherwise require multiple non-AVX instructions. The idea of this vector processing is to execute a given operation on all elements of a fixed size vector at once. Larger problems can usually be broken down into smaller vectors that can be processed by AVX and similar vector processing instructions. \\
-			Data for these operations has to be provided in special AVX registers, and is then transformed according to the used instruction in a single operation. This may take multiple clock cycles, but is usually faster than performing the operation sequentially for the inputs using normal instructions. Additionally, due to the hardware specialization, using AVX instructions may yield a better power usage profile. \\
+			Advanced Vector Extensions (AVX) are SIMD extensions to the x86 instruction set architecture supported by many modern CPUs. AVX instructions are essentially hardware acceleration features for operations that otherwise require multiple non-AVX instructions. The idea of this vector processing is to execute a given operation on all elements of a fixed size vector at once. Larger problems can usually be broken down into smaller vectors that can be processed by AVX and similar vector processing instructions. \cite{avx} \\
+			Data for these operations has to be provided in special AVX registers, and is then transformed according to the used instruction in a single operation. This may take multiple clock cycles, but is usually faster than performing the operation sequentially for the inputs using normal instructions. Due to the hardware specialization and increased throughput, using AVX instructions may consume more power than normal instructions, causing a frequency throttling to maintain Thermal Design Power (TDP) limits. \cite{avx_whitepaper} \\
 			
-			The AVX-512 extensions extend the existing AVX2 extensions from 256-bit to 512-bit vector lengths and introduce many new characteristics and instructions. Using the new AVX-512 vpcompress instructions performs a compressstore operation on the input vector, assuming input element sizes of different lengths, using a bitmask provided in another AVX register. \\
+			The AVX-512 extensions enlarge the existing AVX2 extensions from 256-bit to 512-bit vector lengths and introduce many new characteristics and instructions. The new AVX-512 vpcompress instructions perform exactly a compressstore operation. Elements in the input vector have to all be of the same length but there are several instructions available to deal with different lengths of elements. A seperate AVX register holds the bitmask used in the operation. \\
 			
-			Although AVX2 does not have a dedicated compressstore instruction, the behaviour of a compressstore operation over the short vector register may be reproduced using multiple AVX2 instructions. \\
+			Although AVX2 does not have a dedicated compressstore instruction, the behaviour of a compressstore operation over the short vector register may be reproduced using multiple AVX2 instructions. \cite{avx2_leftpack, cern_datastreaming} \\
 		
 		\section{CUB}
-			CUB \cite{cub} is a library of reusable components for programming CUDA devices. It provides features for sorting, reducing, performing prefix scans, histogram creation and also a compressstore. \\
+			CUB is a library of reusable components for programming CUDA devices. It provides features for sorting, reducing, performing prefix scans, histogram creation and also a compressstore. \cite{cub} \\
 			The algorithms used in the CUB components have been fine tuned for usage with many different CUDA GPUs, and are specialized for operation not only device wide, but also spanning just a warp or block. \\
 			
 			The kernel used by CUB to perform the compressstore operation is designed to only schedule one wave of blocks to the device. That is, there are enough blocks to fill the device, but no additional blocks waiting to be scheduled onto an SM. This ensures that all synchronization can be done at runtime on the device, instead of relying on multiple kernel launches to synchronize dependency chains. \\
 			
-			It is imperative to note that the CUB flagged functionality not only performs a compressstore, but also places all masked out elements in reverse order to the back of the output vector. \\
+			It is imperative to note that the CUB \texttt{flagged} functionality not only performs a compressstore, but also places all masked out elements in reverse order to the back of the output vector. \\
 		
 	\chapter{Analysis and Concepts}
-		The general compressstore problem can be split into three smaller sequential partial tasks. The first two of which only perform action on the bitmask and intermediate constructs, to enable simple parallelization of the actual writeout task, which touches the most data. \\
+		The general compressstore problem can be split into three smaller sequential partial tasks. The first two of which only perform actions on the bitmask and intermediate constructs, to enable simple parallelization of the actual writeout task, which touches the most data. \\
 		
-		The seemingly inherently sequential property of the compressstore, being the dependency of writeout location for an element on the count of enabled elements before it, can be parallelized using a reduction. \\
+		The seemingly inherently sequential property of the compressstore, being the dependency of writeout location for an element on the count of enabled elements linearly before it, can be parallelized using a reduction. \\
 		Specifically, every enabled element is written out at an offset corresponding to the exclusive prefix sum of the bitmask at its position. \\
 		
 		However, because of the large amount of elements that might be processed, it is not feasible to perform any algorithm on single elements. Instead, input elements and bitmask bits are chunked together into chunks of a variable length. This drastically helps reduce the problem size for all three steps. \\
 		
-		To calculate the prefix sum for chunks, a population count of one bits for all preceeding chunks is required. As such the first step is to perform a popcount kernel over all chunks. Since this only requires reading from the bitmask it does not touch a lot of data, even for many elements. \\
+		To calculate the prefix sum for chunks, a population count of enabled bits for all preceeding chunks is required. As such the first step is to perform a popcount kernel over all chunks. Since this only requires reading from the bitmask it does not touch a lot of data, even for many elements. \markr{change?} \\
 		
 		A prefix sum scan operation may be parallelized using a reduction and an expansion. The expansion step is not always necessary, as the (exclusive) prefix sum for a chunk can also be calculated using just the intermediate data from the reduction and another algorithm to perform the collection of the correct values. \\
 		
-		When the prefix sum is completely or partially done, the third task is to perform the writeout of elements per chunk using the pre calculated prefix sums for the chunks starting locations. This leaves the writeout task easily parallelizable, which is important because it is also the task that touches the most data. \\
+		When the prefix sum is completely or partially done, the third task is to perform the writeout of elements per chunk using the pre-calculated prefix sums as the chunks starting offset. This leaves the writeout task easily parallelizable, which is important because it is also the task that touches the most data. \\
 		
-		The emphasis on reducing the amount of touched data is important, because for the compressstore operation there are much more memory accesses than actual calculations performed. If the writeout work can be simplified by taking more time to analyze the much smaller bitmask, considerable time may be saved, especially for very sparse masks of various distributions.
+		The emphasis on reducing the amount of touched data is crucial, because for the compressstore operation there are much more memory accesses than actual calculations performed. If the writeout work can be simplified by taking more time to analyze the much smaller bitmask, considerable time may be saved, especially for very sparse masks of various distributions.
 	
-		When working on bitmasks of repeating patterns, as they are created by a project operation, none of the prepperation steps are neccessary. The writeout location of each input element is directly available via calculation. To reduce the amount of dormant threads in a naive monolithic or grid-striding \cite{cuda_gridstriding} implementation of this for low density bitmasks, a skip table can be precalculated for the pattern, such that the writeout memory access is always the width of all 32 threads of a warp writing at once their corresponding input element. \\
-		This chunk wise algorithm can then be applied in chunks of elements over the entire input data, requiring no reading a bitmask, because the pattern is known beforehand. \\
+		When working on bitmasks of repeating patterns, as they are created by a project operation, none of the preparatory steps are neccessary. The writeout location of each input element is directly available via calculation. To reduce the amount of dormant threads in a naive monolithic or grid-striding implementation of this for low density bitmasks, a skip table can be precalculated for the pattern, such that the writeout memory access is always the width of all 32 threads of a warp writing at once their corresponding input element. \cite{cuda_gridstriding} \\
+		This chunk wise algorithm can then be applied in chunks of elements over the entire input data, requiring no reading of a large bitmask, because the pattern is known beforehand. \\
 	
 		\section{Popcount}
-			The popcount kernel uses a variable chunklength to perform a population count of (enabled) one bits over chunks of the input bitmask. The actual popcount operation is performed on unsigned 32-bit integers using a CUDA intrinsic function. \\
+			The popcount kernel uses a variable chunklength to perform a population count of enabled bits over chunks of the input bitmask. The actual popcount operation is performed on unsigned 32-bit integers using a CUDA intrinsic function. \\
 			Each thread processes one chunk of the bitmask, while adjacent threads process adjacent chunks. The output of the popcount ensures large width memory accesses, because all threads store directly next to each other and at once. \\
 			
-			The writeout phase of the popcount kernel is also a good place to perform a rudimentary histogram creation if required. To distinguish between different distributions of the bitmask with the same $p$ near $0.5$. More on this in section \ref{sec:analysis_writeout} \\
+			The writeout phase of the popcount kernel is also a good place to perform a rudimentary histogram creation if required. To distinguish between different distributions of the bitmask with the same $p$ near $0.5$, further explanation is given in section \ref{sec:analysis_writeout}. \\
 		
 		\section{Prefix Sum Scan}
 			The exclusive prefix sum as required, denotes for each chunk entry the sum of all entries before it. The exclusive prefix sum does not contain the own entry in the prefix sum for a given entry, so it starts at 0. \\
 			
 			The prefix sum scan can be split into two phases when parallelized. The up-sweep reduction phase is imagined like a tree such as in figure \ref{fig:pss_up_sweep}. Every entry holds at the end, the inclusive prefix sum of the subtree that reduced to it. Because of the nature of the binary reduction, the inner nodes of the reduction tree correspond to repeating offsets at various powers of two. This is an intermediate product and only becomes useful through some form of down-sweep computation. \\
-			The down-sweep phase distributes the values of the up-sweep, through the inner nodes, down into the leafs of the reduction tree, thereby creating the final exclusive prefix sum over all entries. \\
+			The down-sweep phase distributes the values of the up-sweep, through the inner nodes, down into the leaves of the reduction tree, thereby creating the final exclusive prefix sum over all entries. \cite{cuda_gems3ppss} \\
 		
 			\subsection{Up-Sweep Reduction}
+				One launch of the up-sweep reduction kernel, corresponds to one layer in the prefix sum reduction tree. The kernel is launched $\log_2(\text{total element count})$ times. \\
+				To perform one layer of reduction, for every two consecutive tree nodes, their sum is stored in the location of the right node, which will correspond to the left node in the next layer. Growing with the increasing depth of the reduction, towards the root, are the offsets between \emph{adjacent} nodes, i.e. those that need to be summed. Starting at depth zero for the leaf nodes, increasing by one for every layer, the $n$-th left-child element can be found at index $(2n+1) \cdot 2^d -1$ for depth $d$. The adjacent right element is found $2^d$ elements further to the right. See figure \ref{fig:pss_up_sweep} for a visualization of this up-sweep phase. \\
 				\begin{figure}[!ht]
 					\centering
 					\includegraphics[width=0.95\linewidth]{./img/pss_up_sweep.png}
 					\caption{\label{fig:pss_up_sweep}Visualization of the up-sweep operation performed by the prefix sum. The left side represents normal operation on a vector with a power of two element count. The right represents adjusted operation to accomodate for non power of two vector sizes. Marked in red is the out of bounds storage location, holding at the end the total amount of one bits. Grayed out cells represent the theoretical power of two cells, no memory is allocated for them.}
 				\end{figure}
-				One launch of the up-sweep reduction kernel, corresponds to one layer in the prefix sum reduction tree. The kernel is launched $\log_2(\text{total element count})$ times. \\
-				To perform one layer of reduction, for every two consecutive tree nodes, their sum is stored in the location of the right node, which will correspond to the left node in the next layer. Growing with the increasing depth of the reduction, towards the root, are the offsets between \emph{adjacent} nodes, i.e. those that need to be summed. Starting at depth zero for the leaf nodes, increasing by one for every layer, the $n$-th left element can be found at index $(2n+1) \cdot 2^d -1$ for depth $d$. The adjacent right element is found $2^d$ elements further to the right. \\
 				
 				The above algorithm only works on chunk counts equal to a power of two. It can easily be adapted to work with any count of chunks by introducing two more checks. \\
 				If both the left and the right subtree indices are out of bounds, their result does not need to be recorded, since it is always zero, and is only going to be propagated further right as well. There would never be any new information introduced that can not be derived from the index, i.e. zero. \\
@@ -262,7 +266,7 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 			
 			As mentioned above, the prefix sum for a chunk of elements to process may not always be actually required. For optimization of very sparse bitmasks, a secondary popcount in a seperate buffer may be useful, as processing of a chunk may be entirely skipped if the popcount entry in that chunk is zero anyway, i.e. there are no elements to process. \\
 			Because performing another popcount kernel pass is not free, it is useful that the total amount of one bits set is already known after the prefix sum up-sweep. This information can be used to determine if a second popcount pass would gain any/enough performance benefits to justify its cost. \\
-			Without using a histogram on chunks, for non uniformly distributed bitmasks like a zipf or burst distribution, the amount of total one bits may not be enough to immediately tell that the optimization targeted popcount pass would be worth it. \\
+			Without using a histogram on chunks, for non-uniformly distributed bitmasks like a zipf or burst distribution, the amount of total one bits may not be enough to immediately tell that the optimization targeted popcount pass would be worth it. \\
 			
 			For repeating pattern bitmasks, writeout of the input elements can be optimized to always use all 32 parallel threads of a warp with adjacent writeout locations to accomodate larger width memory transactions. There are no dormant threads on a 32 element writeout threads, except possibly at the end of a chunk. \\
 			To achieve this behaviour, the threads of a warp need to process 32 elements which will be adjacent to each other in the output at once per step. After calculating the position of the first one bit per thread, they use a 32 element looup table that can be precomputed before the kernel launch on the CPU. The table denotes for every one bit, the amount of indices to skip such that 31 intermediate one bits have been skipped over. Using the intra-chunk writeout offset modulo the pattern length returns the entry to to check in the table, the value of which is added to the offset. \\
