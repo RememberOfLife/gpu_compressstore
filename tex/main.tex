@@ -27,8 +27,6 @@
 \definecolor{review}{RGB}{221,33,114}
 \newcommand{\markr}[1]{\textcolor{review}{$\langle$#1$\rangle$}}
 
-\usepackage{tikz}
-
 \begin{document}
 	
 	\faculty{Fakultät Informatik}
@@ -63,7 +61,8 @@
 		With the rise of increasingly capable computing hardware and often even faster growing data collection mechanisms, modern data refinement, too, is becoming more complex and computationally expensive. Recent years have shown a trend of using general purpose graphics processing units (GPUs or GPGPUs) to accelerate traditional easily parallelizable workloads such as these, and database systems in general \cite{gpgpu_sql, gpgpu_db, gpgpu_cuda}. \\
 		
 		This work deals with fitting the compressstore operation to the GPU. The compressstore operation also has applications in the mentioned data refinement workflows. \\
-		Most obvious is the use as a database projection operation, selecting only some columns of data from a larger set. This non-general operational mode of a compressstore can be optimized for every given pattern at runtime. \\
+		
+		Most obvious are the uses in a database selection and projection operation, reducing a larger set of data down to only some rows or columns. The projection operation in particular functions as a non-general operational mode of a compressstore, it can be optimized for every given pattern at runtime. \\
 		A more general use might be to reduce the size of a problem between single steps of a process. This may be after certain filters have been applied to an intermediate dataset and excess data is best discarded to reduce unnecessary workload on successive processing steps. When the data to remove is not partitioned in a regular fashion the issue calls for the compressstore operation. \\
 		Similar use, although on a different granularity, is required at enormous data collection facilities such as a CERN detector \cite{cern_datastreaming}. \\
 		
@@ -428,7 +427,7 @@ increment_kernel<<<4, 256>>>(d_data, 1000);
 		
 	\chapter{Conclusion}
 		We have analyzed the compressstore problem and introduced a new set of kernels to exploit the GPUs parallelism to accelerate the total runtime of the operation. Along the way we explained some of the design decisions targeted towards increasing performance on the GPU. \\
-		The \texttt{3pass} kernels developed in this work perform best on inputs with bitmasks that contain areas of extreme scarcity. This feature can be exploited on a local level, as well as on a global level where easy detection is possible. As shown, sparse bitmasks enable the created kernels to perform the compressstore operation in a faster runtime than any of the baselines. In the general uniformly distributed $p=0.5$ case the improvement over singlethreaded CPU and GPU approaches persists, but runtimes of \texttt{3pass} prove slightly slower than that of CUB for these denser masks. \\
+		The \texttt{3pass} kernels developed in this work perform best on inputs with bitmasks that contain areas of extreme scarcity. This feature can be exploited on a local level, as well as on a global level where easy detection is possible. As shown, sparse bitmasks enable the created kernels to perform the compressstore operation in a faster runtime than any of the baselines. The speedup gained over CUB, the fastest of the baselines, varies from 4 to 60 times based on the scarcity of the tested bitmask. In the general uniformly distributed $p=0.5$ case the improvement over singlethreaded CPU and GPU approaches persists, but runtimes of \texttt{3pass} prove slightly slower than that of CUB for these denser masks. \\
 		
 		\paragraph{Related Work} Apart from the existence of CUB, that provides compressstore functionality using the GPU, there seems to be relatively little related work available regarding this topic. Particularly pertaining to GPU acceleration of this issue, we have found none accessible at the time of writing. \\
 		As mentioned in the introduction, the use of the AVX-512 compressstore instruction for reducing problem sizes for subsequent steps in a high throughput detector is employed at CERN \cite{cern_datastreaming}. This problem size reducing property is also particularly important for any GPU based database processing. As PCIe transfer is quite slow, data on the GPU should be used in the most efficient way possible. Performing early projection operations by using a compressstore instruction can save valuable space for parallel processing of transactions. \\
