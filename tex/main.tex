@@ -1,4 +1,6 @@
-\documentclass{tudscrartcl}
+%\documentclass{tudscrartcl}
+\documentclass{tudscrreprt}
+%\documentclass[ngerman, 11pt, a4paper, twoside, cleardoublepage=empty, open=right, numbers=noenddot, cd=lightcolor, final]{tudscrreprt}
 
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
@@ -13,8 +15,22 @@
 
 \begin{document}
 	
-	%\maketitle
-	%\newpage
+	\faculty{Fakultät Informatik}
+	\department{Institut für Systemarchitektur}
+	\chair{Lehrstuhl für Datenbanken}
+	\date{15.06.2021}
+	\title{Tailoring Compressstore to GPU}
+	\thesis{bachelor} \graduation[BSc.-Inf.]{Bachelor-Informatik}
+	\author{ Urs Kober
+		\matriculationnumber{---}
+		\dateofbirth{DD.MM.YYYY}
+		\placeofbirth{---}
+	}
+	\matriculationyear{2018}
+	%\supervisor{PD Dr.-Ing. habil. Dirk Habich \and Dipl.-Inf. Johannes Fett}
+	%\professor{Prof. Dr.-Ing. habil. Wolfgang Lehner}
+	\maketitle
+	%\confirmation
 	
 	\section*{Abstract}
 	
@@ -29,100 +45,101 @@
 					\subitem e.g. databse filter
 					\subitem or even large scale datastreaming and filtering inbetween processing
 				\item Use as project operator for filtering out unwanted columns
-			\end{itemize}
-		
-		\subsection{Related Work}
-		
-			\begin{itemize}
-				\item ?
-			\end{itemize}
-		
-		\subsection{Goals}
-		
-			\begin{itemize}
 				\item create compressstore algorithm on nvidia gpus
 				\item tune for performance in general case and interesting cases (zipf/burst/pattern???)
 			\end{itemize}
 		
 	\section{Foundations}
-	
-		\begin{itemize}
-			\item introduces key concepts required to understand the work done
-			\item introduces existing approaches for both cpu and gpu
-		\end{itemize}
+		In this section we will introduce key concepts required to understand the work and its functioning. Specifically we start by defining the compressstore problem and its nuances, before providing a broad overview of the Nvidia CUDA GPU architecture and execution model as it was used to develop and compare the implementations. For usage as baseline comparisons we also briefly look at AVX and the existing CUB implementation.
 	
 		\subsection{Compressstore}
+			\markr{IMG for comrpessstore / flagged / left packing}\\
+			The compressstore operation is used to store elements of a vector for which there is a bit enabled in a corresponding bitmask, consecutively in memory, leaving no spaces for the masked out elements. This operation will always output a vector of length less then or equal to the input vector. \\
+			Even though not all applications of this operation require the same assumptions, in this work a few common ones are made.
 			\begin{itemize}
-				\item definition: consectuive storing of elements indicated by bitmask
-				\item parallelization not trivial, writeout location of each elem on count of previous elems (enabled 1 bits)
-				\item interesting special cases (acceleration potential):
-					\subitem very sparse and dense bitmasks
-					\subitem zipf masks as might spawn from an ordered group by query filter
-					\subitem burst masks as might spawn from an a tablescan over data with temporal dependency in the bitmask
-					\subitem patterned bitmask, as created by a project operation
+				\item The input vector of elements may not be overwritten.
+				\item The order of elements is kept stable through the writeout process.
+				\item There is no information about the bitmask in advance.
 			\end{itemize}
+			Parallelization of this operation is not entirely trivial due to requiring for every input element the writeout location in the output vector as a count of the previous enabled inputs, before processing can occur. \\
+			Depending on the density and distribution of enabled (one) bits in the bitmask there are various special cases, some of which may benefit from specific acceleration. \\
+			These include but are not limited to:
+			\begin{itemize}
+				\item very sparse or dense bitmasks (with uniform distribution)
+				\item zipf distributed bitmasks as they might spawn from an ordered group by query filter
+				\item burst masks as they might spawn from a tablescan over data with temporal dependency
+				\item or repeating pattern bitmasks, useful for performing a project operation.
+			\end{itemize}
+			very sparse or dense bitmasks of uniform distribution, bitmasks distributed according to a zipf distribution as they might appear from an ordered group by query filter
 		
-		\subsection{CUDA}
+		\subsection{GPU Computing}
 		
 			\subsubsection{Architecture}
-				\begin{itemize}
-					\item IMG of labeled gpu structure for overview
-					\item gpu is made up of
-						\subitem global memory
-							\subsubitem many memory controllers
-							\subsubitem a rather small L2 cache
-						\subitem pcie host interface
-						\subitem gigathread engine
-						\subitem many streaming multiprocessors (also clustered)
-					\item SM buildup
-						\subitem register file
-						\subitem shared memory
-						\subitem very small cache
-						\subitem warp schedulers (zero overhead scheduling)
-						\subitem many cuda cores
-						\subitem some load store units (mention queue)
-						\subitem some specialized units for raytracing and tensor operations
-				\end{itemize}
+				\markr{IMG of labeled GPU architecture for overview}\\
+				Although GPUs have, as their name implies, been originally devised as a dedicated device for graphical computation workloads, especially in realtime scenarios, they have long since their inception also seen much use as accelerators for general purpose computing workloads, many of which benefit greatly from the high parallelism they provide. \\
+				Modern GPU architecture consists, across different hardware manufacturers, of mostly differently named but functionally very similar components, the basics of which are described here, to give a brief overview of the structures available to improve performance. \\
+				
+				Equivalent to the RAM of a processor, a typical Nvidia GPU has a global memory shared among all of its processing power, even device intrinsic management functions. Between interactions of processing elements and the global memory is an L2 cache and multiple memory controllers. \\
+				Communication with the host is performed through the PCIe host interface. \\
+				
+				The compute unified device architecture (CUDA) of all recent Nvidia GPUs allows generalisations about the make up of the GPUs processing power, helping developers easier target multiple devices with fine tuned applications. \\
+				
+				When executing code on the GPU, several parallel and concurrent threads all execute the same code. Discernable difference for accessing inputs and outputs is provided solely through a running count across all threads of a workload. \\
+				When launching a kernel (the workload) that is meant to run on the GPU, the user specifies a number of blocks (grid dimension) and a number of threads per block (block dimension) for the GPU to launch. \\
+				Scheduling of blocks on the GPU is managed by the Gigathread engine, specially designed to handle the immensely parallel tasks assigned to GPUs. It distributes the outstanding blocks of running kernels onto the many streaming multiprocessors of the GPU, which is the key structure of processing, of which several dozens can be found in modern devices. When a block of threads is assigned to an SM, the threads it contains are grouped into warps of 32 each. \\
+				
+				An SM contains many so called CUDA cores, which are the real execution units used by warps running on the SM. Every thread alive on an SM has its own registers in a very large register file that serves the entire SM. To distribute the work that threads want to perform across the CUDA cores the SM uses several warp schedulers, that assign a whole warp of threads to execution units respective of the instruction that is being executed. \\
+				Because every thread has effectively its own register file, there is a zero overhead scheduling of warps in every SM. As long as there are warps available to schedule, i.e. warps that have instructions for which there are currently available execution units in the SM, the warp schedulers issue the warps to their execution units between cycles, such that in every cycle actual work gets done. \\
+				
+				The CUDA cores available in every SM vary across different GPUs and GPU architecture generations, but in general there are many integer and floating point arithmetic units available, with a small number of specialized units available for computing tensor or raytracing operations as well as several hardware accelerated math functions. \\
+				
+				Memory accesses of warp are grouped together into larger width accesses where possible, and performed the specialized load/store units. There exists a small L1 cache for global memory operations, which shares a configurable amount of space with the per SM shared memory. Threads on the SM can read from and write to shared memory effectively in only one cycle, however there are serialization limitations if multiple threads perform writes on the same location. \\
+				Memory performance intensive applications that issue a lot of read/write instructions to the load store units (LSU) may quickly suffer of warps stalling due to a reached pipeline limit for the amount of operations in transit per LSU, especially if the widths of memory accesses are smaller, which leads to less coalesced memory accesses and therefore more individual transactions. \\
 			
 			\subsubsection{Execution Model}
-				\begin{itemize}
-					\item SIMT as gpu way of accelerating processing
-						\subitem every thread same instructions (masking out on branching)
-					\item warp/block/grid as gpu way of structuring threading
-					\item cpp extension and nvcc
-					\item kernels host code example
-					\item kernels device code example
-					\item streams for parallelizing kernels/work on gpu
-				\end{itemize}
+				As touched on in the architecture section, all threads of a kernel execute the same code, which in the case of CUDA is written using a C++ extension and the nvcc compiler provided by Nvidia. Such a function, that is executed by all threads, is called a kernel. To create differentiation between threads, intrinsic values for the block number/dimension and thread number inside a block can be used together to create a global thread identification. \\
+				The grid and block dimensioning is not limited to one dimension, they can seperately be each up to three dimensional. \\
+				
+				Because instructions are usually, excluding certain cases on newer devices, executed in lockstep for the entire warp at once, the single instruction multiple threads (SIMT) model of execution functions as a natural, more parallel, progression from single instruction multiple data (SIMD) as it is used on many CPUs. \\
+				Branches in the code are serialized, and thusly very time intensive. All threads not participating in a given branch perform NOOPs while the other threads execute. In excess this behaviour is called warp (execution) divergence and can cause large performance losses. \\
+				
+				Kernel launches and other CUDA library functions, such as copying memory between the host and device may also accept a stream argument. By default these operations are serialized in the default stream. Using non-default streams they can be parallelized on the GPU, and furthermore partially synchronized using events that are triggered and waited for by streams. \\
+				Using streams may enable partial processing of data while copying the rest from the host side to the device still. Or when using events, enables dependencies between larger chains of kernel launches. \\
+				
+				\markr{kernels host code example}\\
+				
+				\markr{kernels device code example}\\
 			
 		\subsection{AVX}
-			\begin{itemize}
-				\item idea of avx is SIMD
-				\item included with pretty much all modern cpus
-				\item useful because of usually better performance and power characteristics
-				\item short how to use avx512 for compressstore
-				\item mention that avx2 can reproduce this behaviour using a shuffle
-			\end{itemize}
+			Advanced Vector Extensions (AVX) are SIMD extensions to the x86 instruction set architecture supported by many modern CPUs. AVX instructions are essentially hardware acceleration features for operations otherwise done on vectors in multiple instructions. \\
+			Data for these operations has to be provided in special AVX registers, and is then transformed according to the used instruction in a single operation, which may still take multiple cycles, but is usually faster than performing the operation sequentially for the inputs using normal instructions. Additionally, due to the hardware specialization, using AVX instructions may yield a better power usage profile. \\
+			
+			The AVX-512 extensions extend the existing AVX2 extensions from 256-bit to 512-bit vector lengths and introduce many new characteristics and instructions. Using the new AVX-512 vpcompress instructions performs a compressstore operation on the input vector, assuming input element sizes of different lengths, using a bitmask provided in another AVX register. \\
+			
+			Although AVX2 does not have a dedicated compressstore instruction, the behaviour of a compressstore operation over the short vector register may be reproduced using multiple AVX2 instructions. \\
 		
-		\subsection{cub}
-			\begin{itemize}
-				\item cub provides generalized reusable components for programming CUDA
-					\subitem e.g. sorting, reducing, compressstore and more
-				\item cub is fine tuned by nvidia engineers, so performance in the general cases can be expected to be very good
-			\end{itemize}
+		\subsection{CUB}
+			CUB is a library of reusable components for programming CUDA devices. It provides features for sorting, reducing, performing prefix scans, histogram creation and also a compressstore. \\
+			The algorithms used in the CUB components have been fine tuned for usage with many different CUDA GPUs. \\
 		
 	\section{Analysis and Concepts}
-		\begin{itemize}
-			\item general problem for non-repeating bitmasks can be split in to 3 stages
-				\subitem popcount over chunks of the bitmask
-				\subitem (partial) prefix sum for the chunks
-				\subitem processing of chunks of input elements using the (partial) prefix sum
-			\item split into workable chunks because per element is not feasible
-				\subitem also reduces computation required by that factor
-			\item looking at the bitmask may spare lots of unneccessary operations in processing
-			\item repeating bitmasks (projection operation) can be optimized even further to trivial parallelism
-				\subitem writeout location is only dependant on input element location and bitmask pattern
-		\end{itemize}
+		The general compressstore problem can be split into three smaller sequential partial tasks. The first two of which only perform action on the bitmask and intermediate constructs, to enable simple parallelization of the actual writeout task, which touches the most data. \\
+		
+		The seemingly inherently sequential property of the compressstore, being the dependency of writeout location for an element on the count of enabled elements before it, can be parallelized using a reduction. \\
+		Specifically, every enabled element is written out at an offset corresponding to the exclusive prefix sum of the bitmask at its position. \\
+		
+		However, because of the large amount of elements that might be processed, it is not feasible to perform any algorithm on single elements. Instead, input elements and bitmask bits are chunked together into chunks of a variable length. This drastically helps reduce the problem size for all three steps. \\
+		
+		To calculate the prefix sum for chunks however, a population count of one bits for all preceeding chunks is required. As such the first step is to perform a popcount kernel over all chunks. Since this only requires reading from the bitmask it does not touch a lot of data, even for many elements. \\
+		
+		A prefix sum scan operation may be parallelized using a reduction and an expansion. The expansion step is not always necessary, as the (exclusive) prefix sum for a chunk can also be calculated using just the intermediate data from the reduction and another algorithm to perform the collection of the correct values. \\
+		
+		When the prefix sum is completely or partially done, the third task is to perform the writeout of elements per chunk using the pre calculated prefix sums for the chunks starting locations. This leaves the writeout task easily parallelizable, which is important because it is also the task that touches the most data. \\
+		
+		The emphasis on reducing the amount of touched data is important, because for the compressstore operation there are much more memory accesses than actual calculations performed. If the writeout work can be simplified by taking more time to analyze the much smaller bitmask, considerable time may be saved, especially for very sparse masks of various distributions.
+	
+		When working on bitmasks of repeating patterns, as they are created by a project operation, none of the prepperation steps are neccessary. The writeout location of each input element is directly available via calculation. To reduce the amount of dormant threads in a naive monolithic/striding implementation of this for low density bitmasks, a skip table can be precalculated for the pattern, such that the writeout memory access is always the width of all 32 threads of a warp writing at once their corresponding input element. \\
+		This chunk wise algorithm can then be applied in chunks of elements over the entire input data, requiring no reading a bitmask, because the pattern is known beforehand. \\
 	
 		\subsection{Popcount}
 			\begin{itemize}
@@ -208,6 +225,8 @@
 					\subitem cub
 			\end{itemize}
 		
+		\markr{instead of one results section maybe do another subsection for every kernel, just like in the analysis section}
+		
 		\subsection{Benchmark Results}
 			\begin{itemize}
 				\item algo testing front to back uses packages, adding up the best-in-class component algos that make it up
@@ -226,6 +245,8 @@
 		
 	\section{Conclusion}
 	
-	\section{Future Work}
+		\subsection{Future Work}
+	
+		\subsection{Related Work}
 	
 \end{document}
